@@ -1,0 +1,24 @@
+### Manual API smoke tests (VS Code REST Client / IntelliJ HTTP client)
+@api = http://localhost:4000/api
+@demo = http://localhost:4100
+
+### API + database health
+GET {{api}}/health
+
+### Unknown route -> structured 404
+GET {{api}}/nope
+
+### Demo target: current mode
+GET {{demo}}/mode
+
+### Demo target: break it
+POST {{demo}}/mode
+Content-Type: application/json
+
+{ "mode": "failing" }
+
+### Demo target: fix it
+POST {{demo}}/mode
+Content-Type: application/json
+
+{ "mode": "healthy" }

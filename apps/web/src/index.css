@@ -1,0 +1,13 @@
+@import 'tailwindcss';
+
+@theme {
+  --color-up: oklch(0.72 0.17 145);
+  --color-down: oklch(0.64 0.2 25);
+  --color-degraded: oklch(0.8 0.15 85);
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}

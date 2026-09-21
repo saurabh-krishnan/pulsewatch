@@ -1,0 +1,211 @@
+// PulseWatch database schema (guide section 6).
+//
+// A few things Prisma cannot express are applied as raw SQL inside the
+// generated migration: the pg_trgm extension, the generated `search_vector`
+// column, the GIN indexes, and the two partial indexes. See prisma/sql/init-extras.sql.
+
+generator client {
+  provider        = "prisma-client-js"
+  output          = "../node_modules/.prisma/client"
+  previewFeatures = ["postgresqlExtensions"]
+}
+
+datasource db {
+  provider   = "postgresql"
+  url        = env("DATABASE_URL")
+  extensions = [pg_trgm]
+}
+
+model User {
+  id           Int      @id @default(autoincrement())
+  name         String
+  email        String   @unique
+  passwordHash String   @map("password_hash")
+  role         String   @default("engineer") // admin | engineer | viewer
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  services       Service[]
+  runbooks       Runbook[]
+  incidentEvents IncidentEvent[]
+
+  @@map("users")
+}
+
+model Service {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+  ownerId     Int?     @map("owner_id")
+  tags        String[] @default([])
+  isPublic    Boolean  @default(true) @map("is_public")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  owner     User?      @relation(fields: [ownerId], references: [id])
+  monitors  Monitor[]
+  runbooks  Runbook[]
+  incidents Incident[]
+  apiKeys   ApiKey[]
+
+  @@map("services")
+}
+
+model Monitor {
+  id                   Int       @id @default(autoincrement())
+  serviceId            Int       @map("service_id")
+  url                  String
+  method               String    @default("GET")
+  intervalSeconds      Int       @default(60) @map("interval_seconds")
+  timeoutMs            Int       @default(5000) @map("timeout_ms")
+  expectedStatus       Int       @default(200) @map("expected_status")
+  failureThreshold     Int       @default(3) @map("failure_threshold")
+  recoveryThreshold    Int       @default(2) @map("recovery_threshold")
+  status               String    @default("unknown") // unknown | up | down | paused
+  consecutiveFailures  Int       @default(0) @map("consecutive_failures")
+  consecutiveSuccesses Int       @default(0) @map("consecutive_successes")
+  nextCheckAt          DateTime  @default(now()) @map("next_check_at") @db.Timestamptz(6)
+  lastCheckedAt        DateTime? @map("last_checked_at") @db.Timestamptz(6)
+
+  service      Service       @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  checkResults CheckResult[]
+  incidents    Incident[]
+  uptimeDaily  UptimeDaily[]
+
+  @@map("monitors")
+}
+
+model CheckResult {
+  id             BigInt   @id @default(autoincrement())
+  monitorId      Int      @map("monitor_id")
+  checkedAt      DateTime @default(now()) @map("checked_at") @db.Timestamptz(6)
+  success        Boolean
+  statusCode     Int?     @map("status_code")
+  responseTimeMs Int?     @map("response_time_ms")
+  errorMessage   String?  @map("error_message")
+
+  monitor Monitor @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@index([monitorId, checkedAt(sort: Desc)], map: "idx_results_monitor_time")
+  @@map("check_results")
+}
+
+model Fingerprint {
+  id          Int      @id @default(autoincrement())
+  hash        String   @unique @db.Char(64) // SHA-256 hex
+  normalized  String // the cleaned-up message
+  firstSeenAt DateTime @default(now()) @map("first_seen_at") @db.Timestamptz(6)
+  lastSeenAt  DateTime @default(now()) @map("last_seen_at") @db.Timestamptz(6)
+  occurrences Int      @default(1)
+
+  incidents Incident[]
+
+  @@map("fingerprints")
+}
+
+model Incident {
+  id             Int       @id @default(autoincrement())
+  serviceId      Int       @map("service_id")
+  monitorId      Int?      @map("monitor_id")
+  fingerprintId  Int?      @map("fingerprint_id")
+  title          String
+  description    String?
+  errorType      String?   @map("error_type") // TIMEOUT | HTTP_5XX | DB_TIMEOUT | ...
+  severity       String    @default("SEV3") // SEV1..SEV4
+  status         String    @default("open") // open | acknowledged | resolved
+  source         String    @default("manual") // monitor | manual | api
+  tags           String[]  @default([])
+  openedAt       DateTime  @default(now()) @map("opened_at") @db.Timestamptz(6)
+  acknowledgedAt DateTime? @map("acknowledged_at") @db.Timestamptz(6)
+  resolvedAt     DateTime? @map("resolved_at") @db.Timestamptz(6)
+  resolutionNote String?   @map("resolution_note")
+
+  service     Service           @relation(fields: [serviceId], references: [id])
+  monitor     Monitor?          @relation(fields: [monitorId], references: [id])
+  fingerprint Fingerprint?      @relation(fields: [fingerprintId], references: [id])
+  events      IncidentEvent[]
+  runbooks    IncidentRunbook[]
+  commits     IncidentCommit[]
+
+  @@index([serviceId, openedAt(sort: Desc)], map: "idx_incidents_service")
+  @@map("incidents")
+}
+
+model IncidentEvent {
+  id         BigInt   @id @default(autoincrement())
+  incidentId Int      @map("incident_id")
+  userId     Int?     @map("user_id") // NULL = system
+  type       String // opened | alert_sent | acknowledged | comment | runbook_used | severity_changed | commit_linked | resolved
+  message    String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  user     User?    @relation(fields: [userId], references: [id])
+
+  @@map("incident_events")
+}
+
+model Runbook {
+  id        Int      @id @default(autoincrement())
+  serviceId Int?     @map("service_id") // NULL = general runbook
+  title     String
+  bodyMd    String   @map("body_md")
+  version   Int      @default(1)
+  updatedBy Int?     @map("updated_by")
+  updatedAt DateTime @default(now()) @map("updated_at") @db.Timestamptz(6)
+
+  service   Service?          @relation(fields: [serviceId], references: [id])
+  updatedByUser User?         @relation(fields: [updatedBy], references: [id])
+  incidents IncidentRunbook[]
+
+  @@map("runbooks")
+}
+
+model IncidentRunbook {
+  incidentId Int      @map("incident_id")
+  runbookId  Int      @map("runbook_id")
+  worked     Boolean? // NULL = tried, outcome unknown
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+  runbook  Runbook  @relation(fields: [runbookId], references: [id], onDelete: Cascade)
+
+  @@id([incidentId, runbookId])
+  @@map("incident_runbooks")
+}
+
+model IncidentCommit {
+  id         Int     @id @default(autoincrement())
+  incidentId Int     @map("incident_id")
+  kind       String // caused_by | fixed_by
+  repo       String
+  commitSha  String? @map("commit_sha")
+  prUrl      String? @map("pr_url")
+
+  incident Incident @relation(fields: [incidentId], references: [id], onDelete: Cascade)
+
+  @@map("incident_commits")
+}
+
+model ApiKey {
+  id        Int       @id @default(autoincrement())
+  serviceId Int       @map("service_id")
+  keyHash   String    @unique @map("key_hash") @db.Char(64) // SHA-256 of the key only
+  prefix    String // first 8 chars, shown in the UI
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+
+  service Service @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+
+  @@map("api_keys")
+}
+
+model UptimeDaily {
+  monitorId     Int      @map("monitor_id")
+  day           DateTime @db.Date
+  total         Int
+  successful    Int
+  avgResponseMs Int?     @map("avg_response_ms")
+
+  monitor Monitor @relation(fields: [monitorId], references: [id], onDelete: Cascade)
+
+  @@id([monitorId, day])
+  @@map("uptime_daily")
+}
