@@ -10,6 +10,7 @@ import {
   updateMonitor,
 } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { ResponseTimeChart } from '../components/ResponseTimeChart';
 import { Button, Card, ErrorBanner, Field, Input, StatusBadge } from '../components/ui';
 
 export function ServiceDetailPage() {
@@ -31,6 +32,8 @@ export function ServiceDetailPage() {
     queryKey: ['monitors', serviceId],
     queryFn: () => listMonitors(serviceId),
     enabled: Number.isInteger(serviceId),
+    // The worker changes status behind the scenes, so poll for it.
+    refetchInterval: 10_000,
   });
 
   function refresh() {
@@ -200,6 +203,10 @@ export function ServiceDetailPage() {
                   {m.status === 'paused' ? 'Resume' : 'Pause'}
                 </Button>
               )}
+            </div>
+
+            <div className="mt-4 border-t border-slate-100 pt-4">
+              <ResponseTimeChart monitorId={m.id} />
             </div>
           </Card>
         ))}

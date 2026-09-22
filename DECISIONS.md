@@ -83,3 +83,38 @@ Monitors cascade, because a monitor without its service is meaningless. Incident
 outage history is the point of the product, and it should not disappear because someone
 tidied up a service list. The foreign key uses `ON DELETE RESTRICT` and the API turns that
 into a 409 with a count.
+
+## Phase 2 — the worker
+
+**The claim query advances `next_check_at` in the same statement that selects the rows.**
+Claiming and rescheduling as one `UPDATE ... WHERE id IN (SELECT ... FOR UPDATE SKIP LOCKED)`
+means a monitor cannot be picked up twice, even by a second worker running concurrently.
+`npm run verify:skip-locked` proves it: client A holds the locks in an open transaction while
+client B runs the identical claim and gets an empty set in ~40ms rather than blocking.
+
+The cost is that a monitor whose worker crashes mid-cycle is skipped for one interval — its
+next check was already scheduled. That is the right trade: a missed check is recoverable, a
+double-counted failure would corrupt the state machine's thresholds.
+
+**`last_checked_at` is set when the check is claimed, not when it finishes.**
+It means "we have started looking at this", which keeps it honest if the process dies
+mid-check. The `check_results` row carries the authoritative timing.
+
+**The check result and the monitor state update share one transaction.**
+Otherwise a crash between them could leave `consecutive_failures` disagreeing with the
+recorded history, and the state machine would make its next decision on a number that no
+sequence of checks could have produced.
+
+**Checker error messages are deliberately templated.**
+`Timeout after 5000ms connecting to localhost:4100` and `HTTP 503 Service Unavailable` keep
+identical wording with only the values varying, because Phase 4 fingerprints them. A message
+that rephrases itself would defeat the grouping before it starts. A unit test pins the
+timeout template for that reason.
+
+**Errors are classified into `ErrorType` at check time, not at incident time.**
+The worker has the exception object with its `cause.code`; by the time an incident is opened
+that context is gone. Classifying early gives fingerprinting a clean `errorType|message` key.
+
+**One failing monitor cannot fail the cycle, and one failing cycle cannot kill the worker.**
+Both are wrapped. An uptime monitor that stops monitoring because one URL misbehaved is
+worse than useless, because it looks like everything is fine.

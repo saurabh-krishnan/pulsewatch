@@ -46,6 +46,15 @@ export interface MonitorDto {
   lastCheckedAt: string | null;
 }
 
+export interface CheckResultDto {
+  id: number;
+  checkedAt: string;
+  success: boolean;
+  statusCode: number | null;
+  responseTimeMs: number | null;
+  errorMessage: string | null;
+}
+
 export interface ApiErrorBody {
   error: {
     code: string;

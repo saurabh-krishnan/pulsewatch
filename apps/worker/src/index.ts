@@ -1,36 +1,46 @@
 /**
  * PulseWatch check worker.
  *
- * Phase 0: process skeleton and graceful shutdown only.
- * Phase 2 fills in scheduler.ts (claim due monitors with FOR UPDATE SKIP LOCKED),
- * checker.ts (fetch + AbortController timeout) and the state-machine wiring.
- * Phase 5 adds alerts.ts, Phase 6 adds rollup.ts.
+ * A separate process from the API on purpose: checking hundreds of URLs a
+ * minute is background work, and the API has to stay responsive. They share
+ * only the database.
+ *
+ * Phase 5 adds alerts.ts, Phase 6 adds the hourly rollup job.
  */
-import { config } from 'dotenv';
-import { resolve } from 'node:path';
-
-config({ path: resolve(process.cwd(), '../../.env') });
-config();
-
-const POLL_SECONDS = Number(process.env.WORKER_POLL_SECONDS ?? 5);
+import { prisma } from './db.js';
+import { env } from './env.js';
+import { runCycle } from './scheduler.js';
 
 let running = true;
-
-async function tick() {
-  // TODO(phase-2): claim due monitors, run checks, persist results, advance state machine.
-}
+let cycleInFlight = false;
 
 async function main() {
-  console.log(`[worker] started, polling every ${POLL_SECONDS}s`);
+  console.log(
+    `[worker] started — polling every ${env.WORKER_POLL_SECONDS}s, ` +
+      `concurrency ${env.WORKER_CONCURRENCY}, batch ${env.WORKER_BATCH_SIZE}`,
+  );
+
   while (running) {
+    cycleInFlight = true;
     try {
-      await tick();
+      const checked = await runCycle();
+      if (checked > 0) console.log(`[worker] cycle complete — ${checked} monitor(s) checked`);
     } catch (err) {
       // A failing cycle must never kill the worker.
       console.error('[worker] cycle failed:', err);
+    } finally {
+      cycleInFlight = false;
     }
-    await new Promise((r) => setTimeout(r, POLL_SECONDS * 1000));
+
+    if (!running) break;
+    await new Promise((r) => setTimeout(r, env.WORKER_POLL_SECONDS * 1000));
   }
+
+  // Let an in-flight cycle finish writing before the connection closes.
+  while (cycleInFlight) await new Promise((r) => setTimeout(r, 100));
+  await prisma.$disconnect();
+  console.log('[worker] stopped');
+  process.exit(0);
 }
 
 function shutdown(signal: string) {

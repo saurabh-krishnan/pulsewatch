@@ -1,6 +1,7 @@
 import axios, { AxiosError } from 'axios';
 import type {
   AuthResponse,
+  CheckResultDto,
   CreateMonitorInput,
   CreateServiceInput,
   LoginInput,
@@ -134,4 +135,9 @@ export async function updateMonitor(id: number, input: UpdateMonitorInput): Prom
 
 export async function deleteMonitor(id: number): Promise<void> {
   await api.delete(`/monitors/${id}`);
+}
+
+export async function listResults(monitorId: number): Promise<CheckResultDto[]> {
+  const { data } = await api.get<CheckResultDto[]>(`/monitors/${monitorId}/results`);
+  return data;
 }

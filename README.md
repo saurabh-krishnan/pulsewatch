@@ -4,7 +4,7 @@ Uptime monitoring and incident knowledge platform. It watches your services, ope
 incident when something breaks, and shows what fixed the same problem last time — using
 error fingerprinting and ranked past fixes, not an AI model, so every match is explainable.
 
-> Status: **Phase 1 complete** — auth, services and monitors. See
+> Status: **Phase 2 complete** — auth, services, monitors, and the check worker. See
 > [the project guide](../PulseWatch_Project_Guide.md) for the full 10-week build plan.
 
 ## Demo accounts
@@ -68,6 +68,21 @@ curl -X POST http://localhost:4100/mode -H "content-type: application/json" -d "
 
 Modes: `healthy`, `slow` (8s response), `failing` (HTTP 503). Flip it to produce a
 repeatable outage for demos and worker tests.
+
+With the worker running and a 30s monitor interval, `failing` takes the monitor DOWN after
+three consecutive failures (~90s) and `healthy` brings it back UP after two successes (~60s).
+
+## Running two workers
+
+The scheduler claims monitors with `FOR UPDATE SKIP LOCKED`, so a second worker process
+never re-checks a monitor the first one already claimed:
+
+```bash
+npm run verify:skip-locked
+```
+
+Client A holds its locks in an open transaction while client B runs the identical claim
+query; B returns a disjoint set immediately instead of blocking.
 
 ## Environment
 
