@@ -8,6 +8,7 @@ import { nextState, type MonitorState, type Status } from '@pulsewatch/shared';
 import { prisma } from './db.js';
 import { runCheck, type CheckOutcome } from './checker.js';
 import { env } from './env.js';
+import { openIncident, resolveIncidentForMonitor } from './incidents.js';
 
 /** Shape returned by the raw claim query (snake_case, straight from Postgres). */
 interface ClaimedMonitor {
@@ -133,10 +134,20 @@ export async function runCycle(): Promise<number> {
       console.log(`[worker] monitor ${monitor.id} ${monitor.url} -> ${state.status} (${detail})`);
 
       if (action === 'open_incident') {
-        // Phase 3 opens a real incident with a timeline here.
-        console.warn(`[worker] monitor ${monitor.id} is DOWN — incident pending (Phase 3)`);
+        const incidentId = await openIncident(monitor, outcome);
+        console.warn(
+          incidentId
+            ? `[worker] monitor ${monitor.id} is DOWN — opened incident ${incidentId}`
+            : `[worker] monitor ${monitor.id} is DOWN — an incident is already open`,
+        );
+        // Phase 5 sends the Discord/email alert here.
       } else if (action === 'resolve_incident') {
-        console.log(`[worker] monitor ${monitor.id} RECOVERED — resolve pending (Phase 3)`);
+        const incidentId = await resolveIncidentForMonitor(monitor.id, monitor.recovery_threshold);
+        console.log(
+          incidentId
+            ? `[worker] monitor ${monitor.id} RECOVERED — resolved incident ${incidentId}`
+            : `[worker] monitor ${monitor.id} RECOVERED — no open incident to resolve`,
+        );
       }
     } catch (err) {
       // One bad monitor must not take down the cycle.

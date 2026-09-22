@@ -2,6 +2,8 @@ import { Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { ProtectedRoute } from './components/ProtectedRoute';
 import { DashboardPage } from './pages/DashboardPage';
+import { IncidentDetailPage } from './pages/IncidentDetailPage';
+import { IncidentsPage } from './pages/IncidentsPage';
 import { LoginPage } from './pages/LoginPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { RegisterPage } from './pages/RegisterPage';
@@ -21,7 +23,8 @@ export default function App() {
           <Route index element={<DashboardPage />} />
           <Route path="services" element={<ServicesPage />} />
           <Route path="services/:id" element={<ServiceDetailPage />} />
-          <Route path="incidents" element={<PlaceholderPage title="Incidents" phase="Phase 3" />} />
+          <Route path="incidents" element={<IncidentsPage />} />
+          <Route path="incidents/:id" element={<IncidentDetailPage />} />
           <Route path="runbooks" element={<PlaceholderPage title="Runbooks" phase="Phase 4" />} />
           <Route path="search" element={<PlaceholderPage title="Search" phase="Phase 5" />} />
         </Route>

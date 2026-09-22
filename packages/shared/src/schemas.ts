@@ -65,6 +65,53 @@ export const updateMonitorSchema = createMonitorSchema.partial().extend({
 export type CreateMonitorInput = z.infer<typeof createMonitorSchema>;
 export type UpdateMonitorInput = z.infer<typeof updateMonitorSchema>;
 
+// ---------- incidents ----------
+
+export const SEVERITIES = ['SEV1', 'SEV2', 'SEV3', 'SEV4'] as const;
+export const INCIDENT_STATUSES = ['open', 'acknowledged', 'resolved'] as const;
+
+export const SEVERITY_LABELS: Record<(typeof SEVERITIES)[number], string> = {
+  SEV1: 'SEV1 · critical, customers affected',
+  SEV2: 'SEV2 · major, degraded service',
+  SEV3: 'SEV3 · minor, contained',
+  SEV4: 'SEV4 · cosmetic or informational',
+};
+
+export const createIncidentSchema = z.object({
+  serviceId: z.coerce.number().int().positive(),
+  title: z.string().trim().min(3, 'Title must be at least 3 characters').max(200),
+  description: z.string().trim().max(5000).optional().or(z.literal('')),
+  severity: z.enum(SEVERITIES).default('SEV3'),
+  errorType: z.string().trim().max(40).optional().or(z.literal('')),
+  tags: z.array(z.string().trim().min(1).max(30)).max(10).default([]),
+});
+
+export const resolveIncidentSchema = z.object({
+  note: z.string().trim().max(5000).optional().or(z.literal('')),
+  // Phase 4 adds: which runbooks were tried, and which one worked.
+});
+
+export const commentSchema = z.object({
+  message: z.string().trim().min(1, 'Comment cannot be empty').max(5000),
+});
+
+export const updateIncidentSchema = z.object({
+  severity: z.enum(SEVERITIES).optional(),
+});
+
+export const incidentFiltersSchema = z.object({
+  status: z.enum(INCIDENT_STATUSES).optional(),
+  serviceId: z.coerce.number().int().positive().optional(),
+  severity: z.enum(SEVERITIES).optional(),
+  q: z.string().trim().max(200).optional(),
+});
+
+export type CreateIncidentInput = z.infer<typeof createIncidentSchema>;
+export type ResolveIncidentInput = z.infer<typeof resolveIncidentSchema>;
+export type CommentInput = z.infer<typeof commentSchema>;
+export type UpdateIncidentInput = z.infer<typeof updateIncidentSchema>;
+export type IncidentFilters = z.infer<typeof incidentFiltersSchema>;
+
 export const MONITOR_DEFAULTS: CreateMonitorInput = {
   url: '',
   method: 'GET',

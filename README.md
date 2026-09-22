@@ -4,8 +4,9 @@ Uptime monitoring and incident knowledge platform. It watches your services, ope
 incident when something breaks, and shows what fixed the same problem last time — using
 error fingerprinting and ranked past fixes, not an AI model, so every match is explainable.
 
-> Status: **Phase 2 complete** — auth, services, monitors, and the check worker. See
-> [the project guide](../PulseWatch_Project_Guide.md) for the full 10-week build plan.
+> Status: **Phase 3 complete** — auth, services, monitors, the check worker, and incidents
+> with an automatic timeline. See [the project guide](../PulseWatch_Project_Guide.md) for
+> the full 10-week build plan.
 
 ## Demo accounts
 
@@ -71,6 +72,15 @@ repeatable outage for demos and worker tests.
 
 With the worker running and a 30s monitor interval, `failing` takes the monitor DOWN after
 three consecutive failures (~90s) and `healthy` brings it back UP after two successes (~60s).
+
+Going DOWN opens an incident automatically, with an `opened` timeline event and a severity
+derived from the error type. Recovering resolves it automatically and adds a `resolved`
+event. In between, an engineer can acknowledge, comment, change severity and resolve with a
+note — every one of those writes to the timeline.
+
+Note that all three seeded monitors point at the same demo target, so breaking it opens one
+incident per monitor. That is the partial unique index doing its job: one active incident
+per monitor, never one per service.
 
 ## Running two workers
 

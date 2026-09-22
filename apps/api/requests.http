@@ -99,6 +99,56 @@ Content-Type: application/json
 GET {{api}}/monitors/1/results
 Authorization: Bearer {{token}}
 
+# ---------- incidents ----------
+
+### List incidents (filters: status, serviceId, severity, q)
+GET {{api}}/incidents
+Authorization: Bearer {{token}}
+
+### Only the open ones
+GET {{api}}/incidents?status=open
+Authorization: Bearer {{token}}
+
+### Create one by hand
+# @name manual
+POST {{api}}/incidents
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "serviceId": 1, "title": "Checkout returning 500s", "description": "Card payments failing",
+  "severity": "SEV2", "errorType": "HTTP_5XX" }
+
+@incident = {{manual.response.body.id}}
+
+### Detail with the full timeline
+GET {{api}}/incidents/{{incident}}
+Authorization: Bearer {{token}}
+
+### Acknowledge (engineer or admin; 409 if already acknowledged)
+POST {{api}}/incidents/{{incident}}/acknowledge
+Authorization: Bearer {{token}}
+
+### Comment — allowed even after resolution
+POST {{api}}/incidents/{{incident}}/comments
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "message": "Pool exhausted, restarting it" }
+
+### Change severity (logged as severity_changed)
+PATCH {{api}}/incidents/{{incident}}
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "severity": "SEV1" }
+
+### Resolve with a note (409 if already resolved)
+POST {{api}}/incidents/{{incident}}/resolve
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "note": "Restarted the DB connection pool" }
+
 # ---------- demo target ----------
 
 ### Current mode

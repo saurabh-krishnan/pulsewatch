@@ -2,12 +2,17 @@ import axios, { AxiosError } from 'axios';
 import type {
   AuthResponse,
   CheckResultDto,
+  CreateIncidentInput,
   CreateMonitorInput,
   CreateServiceInput,
+  IncidentDto,
+  IncidentFilters,
   LoginInput,
   MonitorDto,
   RegisterInput,
+  ResolveIncidentInput,
   ServiceDto,
+  UpdateIncidentInput,
   UpdateMonitorInput,
   UserDto,
 } from '@pulsewatch/shared';
@@ -139,5 +144,47 @@ export async function deleteMonitor(id: number): Promise<void> {
 
 export async function listResults(monitorId: number): Promise<CheckResultDto[]> {
   const { data } = await api.get<CheckResultDto[]>(`/monitors/${monitorId}/results`);
+  return data;
+}
+
+// ---------- incidents ----------
+
+export async function listIncidents(filters: IncidentFilters = {}): Promise<IncidentDto[]> {
+  const { data } = await api.get<IncidentDto[]>('/incidents', { params: filters });
+  return data;
+}
+
+export async function getIncident(id: number): Promise<IncidentDto> {
+  const { data } = await api.get<IncidentDto>(`/incidents/${id}`);
+  return data;
+}
+
+export async function createIncident(input: CreateIncidentInput): Promise<IncidentDto> {
+  const { data } = await api.post<IncidentDto>('/incidents', input);
+  return data;
+}
+
+export async function acknowledgeIncident(id: number): Promise<IncidentDto> {
+  const { data } = await api.post<IncidentDto>(`/incidents/${id}/acknowledge`);
+  return data;
+}
+
+export async function resolveIncident(
+  id: number,
+  input: ResolveIncidentInput,
+): Promise<IncidentDto> {
+  const { data } = await api.post<IncidentDto>(`/incidents/${id}/resolve`, input);
+  return data;
+}
+
+export async function commentOnIncident(id: number, message: string): Promise<void> {
+  await api.post(`/incidents/${id}/comments`, { message });
+}
+
+export async function updateIncident(
+  id: number,
+  input: UpdateIncidentInput,
+): Promise<IncidentDto> {
+  const { data } = await api.patch<IncidentDto>(`/incidents/${id}`, input);
   return data;
 }

@@ -118,3 +118,36 @@ that context is gone. Classifying early gives fingerprinting a clean `errorType|
 **One failing monitor cannot fail the cycle, and one failing cycle cannot kill the worker.**
 Both are wrapped. An uptime monitor that stops monitoring because one URL misbehaved is
 worse than useless, because it looks like everything is fine.
+
+## Phase 3 — incidents
+
+**An incident and its first timeline event are written in one transaction.**
+An incident with no `opened` event would be a hole in exactly the history this product
+exists to keep. The same applies to acknowledge, resolve and severity changes: every state
+change writes its timeline entry in the same transaction that makes the change.
+
+**The duplicate-incident race is handled by the database, not by checking first.**
+`openIncident` just inserts. If another worker got there first, the partial unique index
+`incidents(monitor_id) WHERE status <> 'resolved'` raises a unique violation, and Prisma's
+`P2002` is treated as "already open" rather than an error. A read-then-write check would
+still have a window between the read and the write; the constraint has none.
+
+Verified directly: a second active incident for the same monitor is rejected, while a
+*resolved* one is accepted — so history is never blocked, only concurrent duplicates.
+
+**Severity is auto-assigned coarsely, and any human change is logged.**
+Failures that mean "nobody can reach this" (timeout, connection refused, DNS, TLS, 5xx)
+open at SEV2; anything else at SEV3. It is a starting point, not a judgement: an engineer
+adjusts it from the UI and that adjustment appears in the timeline as `severity_changed`
+with the before and after.
+
+**State transitions are guarded, but comments are not.**
+Acknowledging twice or resolving twice returns 409 — those are mistakes worth surfacing.
+Commenting on a resolved incident is allowed on purpose: the postmortem conversation
+usually happens after the fire is out.
+
+**Known gap: manually resolving an incident while its monitor is still down.**
+The state machine only fires `open_incident` on the transition into DOWN, so no new
+incident appears until the monitor recovers and fails again. That is the correct behaviour
+for a machine with no memory of manual actions, but it does mean a premature manual resolve
+leaves an ongoing outage without an active incident. Worth revisiting if it bites.
