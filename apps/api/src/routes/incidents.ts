@@ -3,9 +3,12 @@ import {
   commentSchema,
   createIncidentSchema,
   incidentFiltersSchema,
+  linkCommitSchema,
   resolveIncidentSchema,
   updateIncidentSchema,
+  type IncidentCommitDto,
   type IncidentDto,
+  type LinkCommitInput,
   type IncidentEventDto,
   type IncidentSeverity,
   type IncidentSource,
@@ -45,6 +48,13 @@ type IncidentRow = {
     createdAt: Date;
     user: { name: string } | null;
   }[];
+  commits?: {
+    id: number;
+    kind: string;
+    repo: string;
+    commitSha: string | null;
+    prUrl: string | null;
+  }[];
 };
 
 function toIncidentDto(i: IncidentRow): IncidentDto {
@@ -65,6 +75,17 @@ function toIncidentDto(i: IncidentRow): IncidentDto {
     acknowledgedAt: i.acknowledgedAt?.toISOString() ?? null,
     resolvedAt: i.resolvedAt?.toISOString() ?? null,
     resolutionNote: i.resolutionNote,
+    ...(i.commits && {
+      commits: i.commits.map(
+        (c): IncidentCommitDto => ({
+          id: c.id,
+          kind: c.kind as IncidentCommitDto['kind'],
+          repo: c.repo,
+          commitSha: c.commitSha,
+          prUrl: c.prUrl,
+        }),
+      ),
+    }),
     ...(i.events && {
       events: i.events.map(
         (e): IncidentEventDto => ({
@@ -184,6 +205,7 @@ incidentsRouter.get('/incidents/:id', requireAuth, async (req, res, next) => {
           include: { user: { select: { name: true } } },
           orderBy: { createdAt: 'asc' },
         },
+        commits: { orderBy: { id: 'asc' } },
       },
     });
     if (!incident) throw new HttpError(404, 'NOT_FOUND', 'Incident not found');
@@ -297,6 +319,49 @@ incidentsRouter.post(
       });
 
       res.json(toIncidentDto(updated));
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+incidentsRouter.post(
+  '/incidents/:id/commits',
+  requireAuth,
+  requireRole('admin', 'engineer'),
+  validateBody(linkCommitSchema),
+  async (req, res, next) => {
+    try {
+      const id = intParam(req, 'id');
+      const incident = await prisma.incident.findUnique({ where: { id } });
+      if (!incident) throw new HttpError(404, 'NOT_FOUND', 'Incident not found');
+
+      const { kind, repo, commitSha, prUrl } = req.body as LinkCommitInput;
+
+      const link = await prisma.$transaction(async (tx) => {
+        const created = await tx.incidentCommit.create({
+          data: { incidentId: id, kind, repo, commitSha: commitSha || null, prUrl: prUrl || null },
+        });
+        await tx.incidentEvent.create({
+          data: {
+            incidentId: id,
+            userId: req.user!.sub,
+            type: 'commit_linked',
+            message: `${kind === 'caused_by' ? 'Caused by' : 'Fixed by'} ${repo}${
+              commitSha ? `@${commitSha.slice(0, 10)}` : ''
+            }${prUrl ? ` (${prUrl})` : ''}`,
+          },
+        });
+        return created;
+      });
+
+      res.status(201).json({
+        id: link.id,
+        kind: link.kind as IncidentCommitDto['kind'],
+        repo: link.repo,
+        commitSha: link.commitSha,
+        prUrl: link.prUrl,
+      } satisfies IncidentCommitDto);
     } catch (err) {
       next(err);
     }

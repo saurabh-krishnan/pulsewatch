@@ -149,7 +149,74 @@ Content-Type: application/json
 
 { "note": "Restarted the DB connection pool" }
 
+# ---------- search ----------
+
+### Full text across incidents and runbooks
+GET {{api}}/search?q=connection pool
+Authorization: Bearer {{token}}
+
+### Stemming: 'restarting' matches 'restarted'
+GET {{api}}/search?q=restarting
+Authorization: Bearer {{token}}
+
+### Typo -> no full-text hits, falls back to trigram (response has fuzzy: true)
+GET {{api}}/search?q=databse timeuts
+Authorization: Bearer {{token}}
+
+# ---------- git links ----------
+
+### Link the PR that fixed an incident
+POST {{api}}/incidents/1/commits
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "kind": "fixed_by", "repo": "acme/payments-api", "commitSha": "9f2c1ab3de",
+  "prUrl": "https://github.com/acme/payments-api/pull/412" }
+
+# ---------- api keys and ingest ----------
+
+### Create a key (admin only, full key shown once)
+# @name apikey
+POST {{api}}/services/1/api-keys
+Authorization: Bearer {{token}}
+
+@key = {{apikey.response.body.key}}
+
+### List keys (prefix only, never the full key)
+GET {{api}}/services/1/api-keys
+Authorization: Bearer {{token}}
+
+### Report an error -> opens an incident
+POST {{api}}/ingest/errors
+X-Api-Key: {{key}}
+Content-Type: application/json
+
+{ "errorType": "DB_TIMEOUT",
+  "message": "Timeout after 5000ms connecting to 10.0.3.17:5432",
+  "severity": "SEV2" }
+
+### Same problem, different numbers -> deduplicated onto the same incident
+POST {{api}}/ingest/errors
+X-Api-Key: {{key}}
+Content-Type: application/json
+
+{ "errorType": "DB_TIMEOUT",
+  "message": "Timeout after 3000ms connecting to 10.0.3.22:5432",
+  "severity": "SEV2" }
+
+### No key -> 401
+POST {{api}}/ingest/errors
+Content-Type: application/json
+
+{ "errorType": "DB_TIMEOUT", "message": "no key" }
+
 # ---------- demo target ----------
+
+### What the alerting webhook received (sink for local testing)
+GET {{demo}}/webhook
+
+### Clear the sink
+DELETE {{demo}}/webhook
 
 ### Current mode
 GET {{demo}}/mode

@@ -80,6 +80,7 @@ export interface IncidentDto {
   resolutionNote: string | null;
   /** Present on the detail response only. */
   events?: IncidentEventDto[];
+  commits?: IncidentCommitDto[];
 }
 
 export interface SimilarIncidentDto {
@@ -105,6 +106,49 @@ export interface SuggestionDto {
   timesWorked: number;
   /** Laplace-smoothed, 0-1. */
   successRate: number;
+}
+
+export interface SearchHitDto {
+  id: number;
+  title: string;
+  serviceName: string | null;
+  /** Matching fragment, with <b> marks around the terms. */
+  snippet: string;
+  rank: number;
+  meta: string;
+}
+
+export interface SearchResponse {
+  query: string;
+  /** True when full-text found nothing and trigram matching was used instead. */
+  fuzzy: boolean;
+  incidents: SearchHitDto[];
+  runbooks: SearchHitDto[];
+}
+
+export interface IncidentCommitDto {
+  id: number;
+  kind: 'caused_by' | 'fixed_by';
+  repo: string;
+  commitSha: string | null;
+  prUrl: string | null;
+}
+
+export interface IngestResponse {
+  incidentId: number;
+  /** false means it was deduplicated into an existing open incident. */
+  created: boolean;
+  occurrences: number;
+}
+
+export interface ApiKeyDto {
+  id: number;
+  serviceId: number;
+  prefix: string;
+  createdAt: string;
+  revokedAt: string | null;
+  /** Only present on creation; never retrievable again. */
+  key?: string;
 }
 
 export interface RunbookDto {

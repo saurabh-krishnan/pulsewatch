@@ -7,8 +7,10 @@ import { errorHandler, notFound } from './middleware/errorHandler.js';
 import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
 import { incidentsRouter } from './routes/incidents.js';
+import { ingestRouter } from './routes/ingest.js';
 import { monitorsRouter } from './routes/monitors.js';
 import { runbooksRouter } from './routes/runbooks.js';
+import { searchRouter } from './routes/search.js';
 import { servicesRouter } from './routes/services.js';
 
 export function createApp() {
@@ -27,6 +29,9 @@ export function createApp() {
   app.use('/api', monitorsRouter);
   app.use('/api', incidentsRouter);
   app.use('/api', runbooksRouter);
+  app.use('/api', searchRouter);
+  // Authenticated by API key, not JWT.
+  app.use('/api', ingestRouter);
 
   app.use(notFound);
   app.use(errorHandler);

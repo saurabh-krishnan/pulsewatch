@@ -10,6 +10,7 @@ import {
   updateMonitor,
 } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { ApiKeys } from '../components/ApiKeys';
 import { ResponseTimeChart } from '../components/ResponseTimeChart';
 import { Button, Card, ErrorBanner, Field, Input, StatusBadge } from '../components/ui';
 
@@ -160,6 +161,8 @@ export function ServiceDetailPage() {
           </form>
         </Card>
       )}
+
+      <ApiKeys serviceId={serviceId} />
 
       <h2 className="mt-8 text-sm font-semibold text-slate-700">Monitors</h2>
       {!showForm && <ErrorBanner message={error} />}

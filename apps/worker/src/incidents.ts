@@ -36,6 +36,14 @@ export interface MonitorContext {
   failure_threshold: number;
 }
 
+export interface OpenedIncident {
+  incidentId: number;
+  serviceName: string;
+  severity: IncidentSeverity;
+  message: string;
+  seenBefore: number;
+}
+
 /**
  * Returns the incident id, or null if one was already open for this monitor.
  *
@@ -46,13 +54,14 @@ export interface MonitorContext {
 export async function openIncident(
   monitor: MonitorContext,
   outcome: CheckOutcome,
-): Promise<number | null> {
+): Promise<OpenedIncident | null> {
   const service = await prisma.service.findUnique({
     where: { id: monitor.service_id },
     select: { name: true },
   });
   const serviceName = service?.name ?? `service ${monitor.service_id}`;
   const errorMessage = outcome.errorMessage ?? 'check failed';
+  const severity = severityFor(outcome.errorType);
 
   // Fingerprint first: the upsert must land even if the incident insert then
   // loses the race to another worker, because the occurrence still happened.
@@ -70,7 +79,7 @@ export async function openIncident(
             `Monitor ${monitor.url} failed ${monitor.failure_threshold} consecutive checks.\n` +
             `Last error: ${errorMessage}`,
           errorType: outcome.errorType,
-          severity: severityFor(outcome.errorType),
+          severity,
           status: 'open',
           source: 'monitor',
         },
@@ -90,7 +99,13 @@ export async function openIncident(
       return created;
     });
 
-    return incident.id;
+    return {
+      incidentId: incident.id,
+      serviceName,
+      severity,
+      message: errorMessage,
+      seenBefore: fp.occurrences,
+    };
   } catch (err) {
     // P2002 = unique constraint: an incident is already active for this monitor.
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
@@ -100,14 +115,14 @@ export async function openIncident(
   }
 }
 
-/** Resolves whatever incident is active for this monitor. Returns its id, or null. */
+/** Resolves whatever incident is active for this monitor. Returns it, or null. */
 export async function resolveIncidentForMonitor(
   monitorId: number,
   recoveryThreshold: number,
-): Promise<number | null> {
+): Promise<{ incidentId: number; serviceName: string; severity: IncidentSeverity } | null> {
   const active = await prisma.incident.findFirst({
     where: { monitorId, status: { not: 'resolved' } },
-    select: { id: true },
+    select: { id: true, severity: true, service: { select: { name: true } } },
   });
   if (!active) return null;
 
@@ -130,5 +145,9 @@ export async function resolveIncidentForMonitor(
     }),
   ]);
 
-  return active.id;
+  return {
+    incidentId: active.id,
+    serviceName: active.service.name,
+    severity: active.severity as IncidentSeverity,
+  };
 }

@@ -11,9 +11,13 @@
     "typecheck": "tsc --build"
   },
   "dependencies": {
-    "@pulsewatch/shared": "*",
     "@prisma/client": "^6.1.0",
+    "@pulsewatch/shared": "*",
     "dotenv": "^16.4.7",
+    "nodemailer": "^10.0.10",
     "zod": "^3.24.1"
+  },
+  "devDependencies": {
+    "@types/nodemailer": "^8.0.2"
   }
 }

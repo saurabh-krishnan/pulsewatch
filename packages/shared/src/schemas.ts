@@ -47,7 +47,17 @@ export type UpdateServiceInput = z.infer<typeof updateServiceSchema>;
 // ---------- monitors ----------
 
 export const createMonitorSchema = z.object({
-  url: z.string().trim().url('Enter a full URL including http:// or https://'),
+  // z.url() alone is not enough: 'localhost:4100' parses as scheme 'localhost:'
+  // with path '4100', so it would be accepted here and then fail confusingly at
+  // check time. Requiring the scheme explicitly also narrows what the worker can
+  // be pointed at, which matters for the SSRF guard.
+  url: z
+    .string()
+    .trim()
+    .url('Enter a full URL including http:// or https://')
+    .refine((u) => /^https?:\/\//i.test(u), {
+      message: 'URL must start with http:// or https://',
+    }),
   method: z.enum(HTTP_METHODS).default('GET'),
   // The database CHECK constraint enforces >= 30 too; catching it here gives a
   // readable message instead of a Postgres error.
@@ -118,6 +128,33 @@ export const updateRunbookSchema = createRunbookSchema.partial();
 
 export type CreateRunbookInput = z.infer<typeof createRunbookSchema>;
 export type UpdateRunbookInput = z.infer<typeof updateRunbookSchema>;
+
+// ---------- git links ----------
+
+export const linkCommitSchema = z
+  .object({
+    kind: z.enum(['caused_by', 'fixed_by']),
+    repo: z.string().trim().min(1, 'Repository is required').max(200),
+    commitSha: z.string().trim().max(64).optional().or(z.literal('')),
+    prUrl: z.string().trim().url('Enter a full URL').optional().or(z.literal('')),
+  })
+  .refine((v) => Boolean(v.commitSha || v.prUrl), {
+    message: 'Provide a commit SHA, a PR URL, or both',
+    path: ['commitSha'],
+  });
+
+export type LinkCommitInput = z.infer<typeof linkCommitSchema>;
+
+// ---------- ingest ----------
+
+export const ingestErrorSchema = z.object({
+  errorType: z.string().trim().min(1, 'errorType is required').max(40),
+  message: z.string().trim().min(1, 'message is required').max(5000),
+  severity: z.enum(SEVERITIES).default('SEV3'),
+  title: z.string().trim().max(200).optional().or(z.literal('')),
+});
+
+export type IngestErrorInput = z.infer<typeof ingestErrorSchema>;
 
 export const commentSchema = z.object({
   message: z.string().trim().min(1, 'Comment cannot be empty').max(5000),

@@ -12,6 +12,7 @@ import {
   updateIncident,
 } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { CommitLinks } from '../components/CommitLinks';
 import { SeenBefore } from '../components/SeenBefore';
 import {
   Button,
@@ -294,6 +295,8 @@ export function IncidentDetailPage() {
       )}
 
       <SeenBefore incidentId={incidentId} />
+
+      <CommitLinks incidentId={incidentId} commits={incident.commits ?? []} />
 
       <h2 className="mt-8 text-sm font-semibold text-slate-700">Timeline</h2>
       <Card className="mt-3">

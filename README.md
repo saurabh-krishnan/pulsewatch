@@ -4,8 +4,8 @@ Uptime monitoring and incident knowledge platform. It watches your services, ope
 incident when something breaks, and shows what fixed the same problem last time — using
 error fingerprinting and ranked past fixes, not an AI model, so every match is explainable.
 
-> Status: **Phase 4 complete** — auth, services, monitors, the check worker, incidents with
-> an automatic timeline, and incident memory. See
+> Status: **Phase 5 complete** — auth, services, monitors, the check worker, incidents with
+> an automatic timeline, incident memory, full-text search, alerting and an ingest API. See
 > [the project guide](../PulseWatch_Project_Guide.md) for the full 10-week build plan.
 
 ## How incident memory works
@@ -125,6 +125,39 @@ note — every one of those writes to the timeline.
 Note that all three seeded monitors point at the same demo target, so breaking it opens one
 incident per monitor. That is the partial unique index doing its job: one active incident
 per monitor, never one per service.
+
+## Alerting
+
+Set `DISCORD_WEBHOOK_URL` and/or `SMTP_URL` in `.env`. With neither set, PulseWatch stays
+quiet. Alerts fire when an incident opens and again when it recovers, and either outcome is
+recorded on the timeline as `alert_sent`.
+
+To test alerting without a real Discord server, point it at the demo target's sink:
+
+```
+DISCORD_WEBHOOK_URL=http://localhost:4100/webhook
+```
+
+then read what was delivered:
+
+```bash
+curl http://localhost:4100/webhook
+```
+
+A failed alert never stops the worker — the incident is still opened, and the timeline says
+the delivery failed.
+
+## Reporting errors from another app
+
+Create an API key on a service page (admin only; shown once, stored hashed), then:
+
+```bash
+curl -X POST http://localhost:4000/api/ingest/errors -H "X-Api-Key: pw_live_..." -H "content-type: application/json" -d "{\"errorType\":\"DB_TIMEOUT\",\"message\":\"Timeout after 5000ms connecting to 10.0.3.17:5432\",\"severity\":\"SEV2\"}"
+```
+
+The first report opens an incident. A second report of the *same underlying problem* —
+even with different numbers, IPs or IDs — is deduplicated onto it by fingerprint and adds a
+"seen again" timeline entry instead of creating a duplicate.
 
 ## Running two workers
 

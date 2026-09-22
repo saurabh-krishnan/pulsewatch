@@ -12,6 +12,11 @@ const schema = z.object({
   WORKER_CONCURRENCY: z.coerce.number().int().min(1).max(100).default(10),
   WORKER_BATCH_SIZE: z.coerce.number().int().min(1).max(500).default(50),
   RESULTS_RETENTION_DAYS: z.coerce.number().int().min(1).default(14),
+  // Alerting is optional: an install with neither configured simply stays quiet.
+  DISCORD_WEBHOOK_URL: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
+  SMTP_URL: z.string().optional().or(z.literal('')).transform((v) => v || undefined),
+  ALERT_EMAIL_TO: z.string().optional().or(z.literal('')).transform((v) => v || undefined),
+  ALERT_EMAIL_FROM: z.string().default('PulseWatch <alerts@pulsewatch.local>'),
 });
 
 const parsed = schema.safeParse(process.env);

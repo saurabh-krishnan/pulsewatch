@@ -198,3 +198,64 @@ before trusting a ratio that did not move.
 The resolve dialog offers "not tried / tried / worked / did not" per runbook, and only the
 touched ones are sent. Failures are the more valuable signal: without them a runbook that
 never works keeps its perfect record, because nobody logs the attempts that did nothing.
+
+## Phase 5 — search, alerts and ingest
+
+**Incidents use a stored `tsvector`; runbooks use an expression index.**
+Incidents are written constantly and searched constantly, so the generated column earns its
+keep. Runbooks are a small, rarely-written table, so
+`gin (to_tsvector('english', title || ' ' || body_md))` is enough and avoids another
+generated column. The `'english'` config has to be spelled out as a constant, because
+`to_tsvector` is only `IMMUTABLE` — and therefore only indexable — when it is.
+
+**`plainto_tsquery`, not `to_tsquery`.**
+`to_tsquery` would make a user typing `timeout & !pool` hit a syntax error instead of a
+search. `plainto_tsquery` treats the input as words.
+
+**Full-text falls back to trigram matching when it finds nothing.**
+Stemming handles "restarting" against "restarted", but it cannot rescue a typo. When the
+tsvector query returns no rows, the search retries against `similarity(title, q) > 0.25`
+and the response says `fuzzy: true` so the UI can explain itself. Verified: "databse
+timeuts" finds six incidents this way and none without it.
+
+**`ts_headline` output is parsed, not injected.**
+Postgres returns snippets with `<b>` around the matches. Rendering that with
+`dangerouslySetInnerHTML` would work, and would be a habit worth not forming — the markers
+are split out and turned into real `<mark>` elements instead.
+
+**A failed alert can never fail a cycle, and is never silent either.**
+Every channel is wrapped individually, failures are logged, and the incident timeline
+records what actually happened: "Sent to Discord", or "No alert delivered — failed:
+Discord". Verified by pointing the webhook at a dead port: the incident still opened, the
+timeline said the alert failed, and the worker kept checking. A monitoring system that
+stops monitoring because Discord is down is worse than one with no alerting, because it
+looks healthy.
+
+Discord requests also carry a 5s `AbortController` timeout, since a loaded webhook endpoint
+tends to hang rather than refuse.
+
+**The demo target doubles as a webhook sink.**
+`POST /webhook` on the demo target captures payloads and `GET /webhook` returns them, so
+alerting can be tested end to end without a real Discord server or putting someone's
+webhook URL in a repo.
+
+**API keys are hashed with plain SHA-256 and no salt.**
+Unlike a password, the key is already 24 random bytes from `randomBytes`, so there is
+nothing to brute-force and no rainbow table to defeat; a slow KDF would only add latency to
+every ingest request. Only the hash and a 14-character prefix are stored, the full key is
+returned exactly once, and revoking sets `revoked_at` rather than deleting so the audit
+trail survives. A revoked key and a nonexistent key return the same error.
+
+**Ingest deduplicates on fingerprint, not on message.**
+Two reports of the same failure with different connection counts or IPs normalize to one
+fingerprint, so the second attaches a "seen again" event to the open incident instead of
+opening a duplicate. Verified: `Timeout after 5000ms connecting to 10.0.9.11:5432` and
+`Timeout after 3000ms connecting to 10.0.9.57:5432` landed on the same incident.
+
+The `P2002` fallback is there for two reports racing: the loser looks up the winner's
+incident and attaches to it rather than returning an error to a client that did nothing
+wrong.
+
+**Ingest is rate limited per API key, not per IP.**
+An SDK retrying during an outage comes from one host but many keys, or one key and many
+hosts. The key is the thing worth limiting.

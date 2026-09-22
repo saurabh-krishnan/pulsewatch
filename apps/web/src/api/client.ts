@@ -1,7 +1,11 @@
 import axios, { AxiosError } from 'axios';
 import type {
+  ApiKeyDto,
   AuthResponse,
   CheckResultDto,
+  IncidentCommitDto,
+  LinkCommitInput,
+  SearchResponse,
   CreateIncidentInput,
   CreateMonitorInput,
   CreateRunbookInput,
@@ -204,6 +208,39 @@ export async function listSimilarIncidents(id: number): Promise<SimilarIncidentD
 export async function listSuggestions(id: number): Promise<SuggestionDto[]> {
   const { data } = await api.get<SuggestionDto[]>(`/incidents/${id}/suggestions`);
   return data;
+}
+
+// ---------- search ----------
+
+export async function search(q: string): Promise<SearchResponse> {
+  const { data } = await api.get<SearchResponse>('/search', { params: { q } });
+  return data;
+}
+
+// ---------- git links ----------
+
+export async function linkCommit(
+  incidentId: number,
+  input: LinkCommitInput,
+): Promise<IncidentCommitDto> {
+  const { data } = await api.post<IncidentCommitDto>(`/incidents/${incidentId}/commits`, input);
+  return data;
+}
+
+// ---------- api keys ----------
+
+export async function listApiKeys(serviceId: number): Promise<ApiKeyDto[]> {
+  const { data } = await api.get<ApiKeyDto[]>(`/services/${serviceId}/api-keys`);
+  return data;
+}
+
+export async function createApiKey(serviceId: number): Promise<ApiKeyDto> {
+  const { data } = await api.post<ApiKeyDto>(`/services/${serviceId}/api-keys`);
+  return data;
+}
+
+export async function revokeApiKey(serviceId: number, id: number): Promise<void> {
+  await api.delete(`/services/${serviceId}/api-keys/${id}`);
 }
 
 // ---------- runbooks ----------

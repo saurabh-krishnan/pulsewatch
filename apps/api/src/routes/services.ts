@@ -3,10 +3,12 @@ import {
   createMonitorSchema,
   createServiceSchema,
   updateServiceSchema,
+  type ApiKeyDto,
   type MonitorDto,
   type ServiceDto,
 } from '@pulsewatch/shared';
 import { prisma } from '../db.js';
+import { generateApiKey } from '../middleware/apiKey.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { intParam, validateBody } from '../middleware/validate.js';
@@ -155,6 +157,84 @@ servicesRouter.delete(
       }
 
       await prisma.service.delete({ where: { id } });
+      res.status(204).send();
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+// ---------- API keys ----------
+
+servicesRouter.get(
+  '/services/:id/api-keys',
+  requireAuth,
+  requireRole('admin'),
+  async (req, res, next) => {
+    try {
+      const keys = await prisma.apiKey.findMany({
+        where: { serviceId: intParam(req, 'id') },
+        orderBy: { createdAt: 'desc' },
+      });
+      res.json(
+        keys.map(
+          (k): ApiKeyDto => ({
+            id: k.id,
+            serviceId: k.serviceId,
+            prefix: k.prefix,
+            createdAt: k.createdAt.toISOString(),
+            revokedAt: k.revokedAt?.toISOString() ?? null,
+          }),
+        ),
+      );
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+servicesRouter.post(
+  '/services/:id/api-keys',
+  requireAuth,
+  requireRole('admin'),
+  async (req, res, next) => {
+    try {
+      const serviceId = intParam(req, 'id');
+      const service = await prisma.service.findUnique({ where: { id: serviceId } });
+      if (!service) throw new HttpError(404, 'NOT_FOUND', 'Service not found');
+
+      const { key, hash, prefix } = generateApiKey();
+      const saved = await prisma.apiKey.create({
+        data: { serviceId, keyHash: hash, prefix },
+      });
+
+      // The only time the full key is ever returned. It is not recoverable:
+      // only its SHA-256 is stored.
+      res.status(201).json({
+        id: saved.id,
+        serviceId,
+        prefix,
+        createdAt: saved.createdAt.toISOString(),
+        revokedAt: null,
+        key,
+      } satisfies ApiKeyDto);
+    } catch (err) {
+      next(err);
+    }
+  },
+);
+
+servicesRouter.delete(
+  '/services/:serviceId/api-keys/:id',
+  requireAuth,
+  requireRole('admin'),
+  async (req, res, next) => {
+    try {
+      const id = intParam(req, 'id');
+      const existing = await prisma.apiKey.findUnique({ where: { id } });
+      if (!existing) throw new HttpError(404, 'NOT_FOUND', 'API key not found');
+      // Revoked rather than deleted, so the audit trail survives.
+      await prisma.apiKey.update({ where: { id }, data: { revokedAt: new Date() } });
       res.status(204).send();
     } catch (err) {
       next(err);

@@ -8,6 +8,7 @@ import { nextState, type MonitorState, type Status } from '@pulsewatch/shared';
 import { prisma } from './db.js';
 import { runCheck, type CheckOutcome } from './checker.js';
 import { env } from './env.js';
+import { sendAlert } from './alerts.js';
 import { openIncident, resolveIncidentForMonitor } from './incidents.js';
 
 /** Shape returned by the raw claim query (snake_case, straight from Postgres). */
@@ -134,20 +135,40 @@ export async function runCycle(): Promise<number> {
       console.log(`[worker] monitor ${monitor.id} ${monitor.url} -> ${state.status} (${detail})`);
 
       if (action === 'open_incident') {
-        const incidentId = await openIncident(monitor, outcome);
+        const opened = await openIncident(monitor, outcome);
         console.warn(
-          incidentId
-            ? `[worker] monitor ${monitor.id} is DOWN — opened incident ${incidentId}`
+          opened
+            ? `[worker] monitor ${monitor.id} is DOWN — opened incident ${opened.incidentId}`
             : `[worker] monitor ${monitor.id} is DOWN — an incident is already open`,
         );
-        // Phase 5 sends the Discord/email alert here.
+        if (opened) {
+          await sendAlert({
+            kind: 'opened',
+            incidentId: opened.incidentId,
+            serviceName: opened.serviceName,
+            monitorUrl: monitor.url,
+            severity: opened.severity,
+            message: opened.message,
+            seenBefore: opened.seenBefore,
+          });
+        }
       } else if (action === 'resolve_incident') {
-        const incidentId = await resolveIncidentForMonitor(monitor.id, monitor.recovery_threshold);
+        const resolved = await resolveIncidentForMonitor(monitor.id, monitor.recovery_threshold);
         console.log(
-          incidentId
-            ? `[worker] monitor ${monitor.id} RECOVERED — resolved incident ${incidentId}`
+          resolved
+            ? `[worker] monitor ${monitor.id} RECOVERED — resolved incident ${resolved.incidentId}`
             : `[worker] monitor ${monitor.id} RECOVERED — no open incident to resolve`,
         );
+        if (resolved) {
+          await sendAlert({
+            kind: 'recovered',
+            incidentId: resolved.incidentId,
+            serviceName: resolved.serviceName,
+            monitorUrl: monitor.url,
+            severity: resolved.severity,
+            message: 'Checks are passing again',
+          });
+        }
       }
     } catch (err) {
       // One bad monitor must not take down the cycle.

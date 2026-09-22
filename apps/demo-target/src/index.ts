@@ -37,6 +37,27 @@ app.get('/health', async (_req, res) => {
 
 app.get('/mode', (_req, res) => res.json({ mode }));
 
+/**
+ * Webhook sink, so alerting can be tested end to end without pointing at a
+ * real Discord server. Set DISCORD_WEBHOOK_URL=http://localhost:4100/webhook
+ * and the captured payloads show up on GET /webhook.
+ */
+const captured: { receivedAt: string; body: unknown }[] = [];
+
+app.post('/webhook', (req, res) => {
+  captured.push({ receivedAt: new Date().toISOString(), body: req.body });
+  console.log(`[demo-target] webhook captured (${captured.length} total)`);
+  // Discord answers 204 on success; mirror that so the client path is realistic.
+  res.status(204).send();
+});
+
+app.get('/webhook', (_req, res) => res.json({ count: captured.length, captured }));
+
+app.delete('/webhook', (_req, res) => {
+  captured.length = 0;
+  res.status(204).send();
+});
+
 app.post('/mode', (req, res) => {
   const next = req.body?.mode;
   if (next !== 'healthy' && next !== 'slow' && next !== 'failing') {

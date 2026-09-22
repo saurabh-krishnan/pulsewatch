@@ -9,6 +9,7 @@ import { PlaceholderPage } from './pages/PlaceholderPage';
 import { RegisterPage } from './pages/RegisterPage';
 import { RunbookDetailPage } from './pages/RunbookDetailPage';
 import { RunbooksPage } from './pages/RunbooksPage';
+import { SearchPage } from './pages/SearchPage';
 import { ServiceDetailPage } from './pages/ServiceDetailPage';
 import { ServicesPage } from './pages/ServicesPage';
 
@@ -29,7 +30,7 @@ export default function App() {
           <Route path="incidents/:id" element={<IncidentDetailPage />} />
           <Route path="runbooks" element={<RunbooksPage />} />
           <Route path="runbooks/:id" element={<RunbookDetailPage />} />
-          <Route path="search" element={<PlaceholderPage title="Search" phase="Phase 5" />} />
+          <Route path="search" element={<SearchPage />} />
         </Route>
       </Route>
 
