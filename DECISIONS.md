@@ -14,7 +14,16 @@ build step between editing `fingerprint.ts` and seeing it work in the API. Trade
 Phase 8 production Docker build has to bundle (esbuild/tsup) or compile the package first,
 because Node cannot `import` a `.ts` file from compiled output.
 
-**Two Postgres containers: `db` on 5432 and `db-test` on 5433.**
+**Local Postgres runs from a portable install, not Docker.**
+Docker Desktop cannot start on this machine: Windows 11 Home has no Hyper-V, so WSL2 is the
+only backend, and the WSL installation is corrupted at the OS level. Rather than let that
+block the project, local development uses the official Postgres 16.10 binaries extracted to
+`%USERPROFILE%\pgsql` (`npm run pg:start` / `pg:stop`). Identical version, port and
+connection string, so no application code knows the difference, and `docker-compose.yml`
+stays correct for CI and Phase 8. The trade-off is that the compose file is unverified on
+this machine — worth testing before relying on it for deployment.
+
+**Two Postgres databases: `pulsewatch` and `pulsewatch_test` (containers `db`/`db-test` in compose).**
 Phase 7 wants API integration tests against a real database. Keeping the test database
 separate means tests can truncate tables without destroying dev data.
 

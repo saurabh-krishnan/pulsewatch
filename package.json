@@ -24,6 +24,8 @@
     "typecheck": "tsc --build --force",
     "db:up": "docker compose up -d db",
     "db:down": "docker compose down",
+    "pg:start": "powershell -ExecutionPolicy Bypass -File scripts/pg-start.ps1",
+    "pg:stop": "powershell -ExecutionPolicy Bypass -File scripts/pg-stop.ps1",
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",

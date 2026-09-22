@@ -17,6 +17,9 @@ npm run db:migrate        # create the schema
 npm run dev               # api :4000 · web :5173 · worker · demo-target :4100
 ```
 
+> On a machine where Docker cannot run, use `npm run pg:start` in place of `npm run db:up`.
+> See [SETUP.md](SETUP.md).
+
 Health check: <http://localhost:4000/api/health> · UI: <http://localhost:5173>
 
 ## Workspace layout
