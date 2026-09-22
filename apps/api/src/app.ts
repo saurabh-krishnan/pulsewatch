@@ -4,7 +4,10 @@ import helmet from 'helmet';
 import morgan from 'morgan';
 import { env } from './env.js';
 import { errorHandler, notFound } from './middleware/errorHandler.js';
+import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
+import { monitorsRouter } from './routes/monitors.js';
+import { servicesRouter } from './routes/services.js';
 
 export function createApp() {
   const app = express();
@@ -15,8 +18,11 @@ export function createApp() {
   if (env.NODE_ENV !== 'test') app.use(morgan('dev'));
 
   // Routes are mounted under /api. More land here each phase:
-  // auth, services, monitors, incidents, runbooks, search, stats, ingest, public.
+  // incidents, runbooks, search, stats, ingest, public.
   app.use('/api', healthRouter);
+  app.use('/api', authRouter);
+  app.use('/api', servicesRouter);
+  app.use('/api', monitorsRouter);
 
   app.use(notFound);
   app.use(errorHandler);

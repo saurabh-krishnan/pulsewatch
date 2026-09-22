@@ -50,3 +50,36 @@ development needs the exception so monitors can reach `localhost:4100`.
 The frontend always calls a relative `/api`, so the same code works in production where the
 API serves the React build from one origin. CORS config still exists for the case where they
 are deployed separately.
+
+## Phase 1 — auth and services
+
+**`@pulsewatch/shared` has two entry points, and `fingerprint.ts` is not in the root one.**
+The web app imports the shared Zod schemas, so anything the root `index.ts` re-exports ends
+up in the browser bundle. `fingerprint.ts` imports `node:crypto`, which would break that
+build. The root entry is browser-safe; the API and worker import hashing from
+`@pulsewatch/shared/fingerprint`.
+
+**Zod schemas live in `shared`, not in the API.**
+One definition validates the request on the server and the form on the client, so the two
+cannot drift. The server still validates independently — the client schema is a convenience,
+never the security boundary.
+
+**The first registered account becomes `admin`, everyone after is `engineer`.**
+A fresh install needs some way to get an admin without a chicken-and-egg problem. The
+alternative — an env var listing admin emails — is more configuration for no benefit at this
+size.
+
+**Login says "Email or password is incorrect" for both cases, and hashes even when the user
+does not exist.** Distinct messages would let someone enumerate which emails have accounts.
+
+**Only `paused` and `unknown` can be set on a monitor through the API.**
+`up` and `down` belong to the worker's state machine. Accepting them over HTTP would let a
+user contradict what the checks actually observed, and the recorded history would lie.
+Resuming sets `nextCheckAt = now()` so it checks promptly instead of waiting out the old
+schedule.
+
+**Deleting a service is blocked when incidents reference it.**
+Monitors cascade, because a monitor without its service is meaningless. Incidents do not:
+outage history is the point of the product, and it should not disappear because someone
+tidied up a service list. The foreign key uses `ON DELETE RESTRICT` and the API turns that
+into a 409 with a count.

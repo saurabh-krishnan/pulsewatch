@@ -8,16 +8,109 @@ GET {{api}}/health
 ### Unknown route -> structured 404
 GET {{api}}/nope
 
-### Demo target: current mode
+# ---------- auth ----------
+
+### Log in as the seeded admin (copy `token` into @token below)
+# @name login
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "admin@pulsewatch.local", "password": "pulsewatch123" }
+
+@token = {{login.response.body.token}}
+
+### Wrong password -> 401
+POST {{api}}/auth/login
+Content-Type: application/json
+
+{ "email": "admin@pulsewatch.local", "password": "nope" }
+
+### Current user
+GET {{api}}/auth/me
+Authorization: Bearer {{token}}
+
+### No token -> 401
+GET {{api}}/auth/me
+
+# ---------- services ----------
+
+### List services
+GET {{api}}/services
+Authorization: Bearer {{token}}
+
+### Create a service (admin only)
+POST {{api}}/services
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "checkout-api", "description": "Cart and checkout flow", "tags": ["critical"] }
+
+### Invalid name -> 400 with field details
+POST {{api}}/services
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "name": "Not A Slug!" }
+
+# ---------- monitors ----------
+
+### Monitors for service 1
+GET {{api}}/services/1/monitors
+Authorization: Bearer {{token}}
+
+### Add a monitor (admin only)
+POST {{api}}/services/1/monitors
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "url": "http://localhost:4100/health", "intervalSeconds": 60, "timeoutMs": 5000,
+  "expectedStatus": 200, "failureThreshold": 3, "recoveryThreshold": 2 }
+
+### Interval below the 30s floor -> 400
+POST {{api}}/services/1/monitors
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "url": "http://localhost:4100/health", "intervalSeconds": 5, "timeoutMs": 5000,
+  "expectedStatus": 200, "failureThreshold": 3, "recoveryThreshold": 2 }
+
+### Pause a monitor
+PATCH {{api}}/monitors/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "paused" }
+
+### Resume it ('unknown' lets the worker decide up/down again)
+PATCH {{api}}/monitors/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "unknown" }
+
+### Setting 'up' by hand -> 400, that belongs to the worker
+PATCH {{api}}/monitors/1
+Authorization: Bearer {{token}}
+Content-Type: application/json
+
+{ "status": "up" }
+
+### Check results (populated in Phase 2)
+GET {{api}}/monitors/1/results
+Authorization: Bearer {{token}}
+
+# ---------- demo target ----------
+
+### Current mode
 GET {{demo}}/mode
 
-### Demo target: break it
+### Break it
 POST {{demo}}/mode
 Content-Type: application/json
 
 { "mode": "failing" }
 
-### Demo target: fix it
+### Fix it
 POST {{demo}}/mode
 Content-Type: application/json
 

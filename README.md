@@ -4,8 +4,18 @@ Uptime monitoring and incident knowledge platform. It watches your services, ope
 incident when something breaks, and shows what fixed the same problem last time — using
 error fingerprinting and ranked past fixes, not an AI model, so every match is explainable.
 
-> Status: **Phase 0 — setup.** See [the project guide](../PulseWatch_Project_Guide.md) for the
-> full 10-week build plan.
+> Status: **Phase 1 complete** — auth, services and monitors. See
+> [the project guide](../PulseWatch_Project_Guide.md) for the full 10-week build plan.
+
+## Demo accounts
+
+After `npm run db:seed`, all three use the password `pulsewatch123`:
+
+| Email | Role | Can |
+|---|---|---|
+| `admin@pulsewatch.local` | admin | everything, including creating services and monitors |
+| `engineer@pulsewatch.local` | engineer | acknowledge and resolve incidents (Phase 3) |
+| `viewer@pulsewatch.local` | viewer | read only |
 
 ## Quick start
 
