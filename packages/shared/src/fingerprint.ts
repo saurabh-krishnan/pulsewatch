@@ -27,3 +27,41 @@ export function normalize(message: string): string {
 export function fingerprint(errorType: string, message: string): string {
   return createHash('sha256').update(`${errorType}|${normalize(message)}`).digest('hex');
 }
+
+/**
+ * Insert-or-bump, in one statement. Doing it as an upsert rather than
+ * select-then-insert means two workers seeing the same error at the same moment
+ * both count, instead of one of them losing a race and creating a duplicate.
+ */
+export const FINGERPRINT_UPSERT_SQL = `
+  INSERT INTO fingerprints (hash, normalized)
+  VALUES ($1, $2)
+  ON CONFLICT (hash) DO UPDATE
+    SET occurrences = fingerprints.occurrences + 1, last_seen_at = now()
+  RETURNING id, occurrences
+`;
+
+/** Structural type so this works with any Prisma client without importing one. */
+export interface RawQueryClient {
+  $queryRawUnsafe<T = unknown>(sql: string, ...values: unknown[]): Promise<T>;
+}
+
+export interface FingerprintRecord {
+  id: number;
+  /** How many times this exact problem has been seen, including now. */
+  occurrences: number;
+}
+
+export async function upsertFingerprint(
+  db: RawQueryClient,
+  errorType: string,
+  message: string,
+): Promise<FingerprintRecord> {
+  const hash = fingerprint(errorType, message);
+  const rows = await db.$queryRawUnsafe<FingerprintRecord[]>(
+    FINGERPRINT_UPSERT_SQL,
+    hash,
+    normalize(message),
+  );
+  return rows[0]!;
+}

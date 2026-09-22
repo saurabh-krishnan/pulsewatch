@@ -7,6 +7,8 @@ import { IncidentsPage } from './pages/IncidentsPage';
 import { LoginPage } from './pages/LoginPage';
 import { PlaceholderPage } from './pages/PlaceholderPage';
 import { RegisterPage } from './pages/RegisterPage';
+import { RunbookDetailPage } from './pages/RunbookDetailPage';
+import { RunbooksPage } from './pages/RunbooksPage';
 import { ServiceDetailPage } from './pages/ServiceDetailPage';
 import { ServicesPage } from './pages/ServicesPage';
 
@@ -25,7 +27,8 @@ export default function App() {
           <Route path="services/:id" element={<ServiceDetailPage />} />
           <Route path="incidents" element={<IncidentsPage />} />
           <Route path="incidents/:id" element={<IncidentDetailPage />} />
-          <Route path="runbooks" element={<PlaceholderPage title="Runbooks" phase="Phase 4" />} />
+          <Route path="runbooks" element={<RunbooksPage />} />
+          <Route path="runbooks/:id" element={<RunbookDetailPage />} />
           <Route path="search" element={<PlaceholderPage title="Search" phase="Phase 5" />} />
         </Route>
       </Route>

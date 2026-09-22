@@ -88,8 +88,36 @@ export const createIncidentSchema = z.object({
 
 export const resolveIncidentSchema = z.object({
   note: z.string().trim().max(5000).optional().or(z.literal('')),
-  // Phase 4 adds: which runbooks were tried, and which one worked.
+  /**
+   * Which runbooks were tried, and which one worked. This is what feeds the
+   * success rates that rank suggestions for the next incident, so it is the
+   * single most valuable thing an engineer records here.
+   */
+  runbooks: z
+    .array(
+      z.object({
+        runbookId: z.coerce.number().int().positive(),
+        // null = tried, outcome unknown
+        worked: z.boolean().nullable().default(null),
+      }),
+    )
+    .max(20)
+    .default([]),
 });
+
+// ---------- runbooks ----------
+
+export const createRunbookSchema = z.object({
+  // null or omitted means a general runbook that applies to every service.
+  serviceId: z.coerce.number().int().positive().nullable().optional(),
+  title: z.string().trim().min(3, 'Title must be at least 3 characters').max(200),
+  bodyMd: z.string().trim().min(1, 'A runbook needs a body').max(50_000),
+});
+
+export const updateRunbookSchema = createRunbookSchema.partial();
+
+export type CreateRunbookInput = z.infer<typeof createRunbookSchema>;
+export type UpdateRunbookInput = z.infer<typeof updateRunbookSchema>;
 
 export const commentSchema = z.object({
   message: z.string().trim().min(1, 'Comment cannot be empty').max(5000),

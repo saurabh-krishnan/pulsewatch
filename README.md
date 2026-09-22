@@ -4,9 +4,53 @@ Uptime monitoring and incident knowledge platform. It watches your services, ope
 incident when something breaks, and shows what fixed the same problem last time — using
 error fingerprinting and ranked past fixes, not an AI model, so every match is explainable.
 
-> Status: **Phase 3 complete** — auth, services, monitors, the check worker, and incidents
-> with an automatic timeline. See [the project guide](../PulseWatch_Project_Guide.md) for
-> the full 10-week build plan.
+> Status: **Phase 4 complete** — auth, services, monitors, the check worker, incidents with
+> an automatic timeline, and incident memory. See
+> [the project guide](../PulseWatch_Project_Guide.md) for the full 10-week build plan.
+
+## How incident memory works
+
+Two errors from the same underlying problem rarely look identical:
+
+```
+2026-09-21T10:15:32Z ERROR Timeout after 5000ms connecting to 10.0.3.17:5432 (request 8f14e45f-ceea-467f-a4a0-3b2f1c6a9d10)
+2026-09-24T03:01:09Z ERROR Timeout after 3000ms connecting to 10.0.3.22:5432 (request 1b4e28ba-2fa1-11d2-883f-0016d3cca427)
+```
+
+Normalization replaces the variable parts, in a deliberate order — UUIDs, timestamps, URLs,
+emails and IPs before bare numbers, because once `\d+` has run a UUID is unrecoverable.
+Both messages become:
+
+```
+<ts> error timeout after <num>ms connecting to <ip>:<num> (request <uuid>)
+```
+
+That string is hashed with SHA-256 together with the error type. Same hash, same problem.
+In the seed data, **26 historical incidents collapse into 12 fingerprints**.
+
+A new incident is then ranked against past resolved ones:
+
+| Signal | Points |
+|---|---|
+| Same fingerprint | 50 |
+| Text similarity (`pg_trgm`, 0–1) | up to 25 |
+| Same service | 15 |
+| Same error type | 10 |
+| Shares a tag | 5 |
+| Resolved in the last 30 days | 5 |
+
+Anything scoring 30 or more surfaces, top 5, each with the reason it matched. Candidate
+selection happens in SQL; the scoring runs in TypeScript so it can be unit-tested without a
+database.
+
+Finally, the runbooks that fixed those incidents are ranked by a Laplace-smoothed success
+rate, `(worked + 1) / (tried + 2)`, so a runbook that worked 1 of 1 does not outrank one
+that worked 9 of 10. The result reads:
+
+> **Seen 5 times before with the exact same error signature.**
+> Suggested fixes: Restart DB connection pool — **71%**, fixed 4 of 5.
+
+Every match is explainable, because nothing here is a model.
 
 ## Demo accounts
 

@@ -4,6 +4,7 @@ import type {
   CheckResultDto,
   CreateIncidentInput,
   CreateMonitorInput,
+  CreateRunbookInput,
   CreateServiceInput,
   IncidentDto,
   IncidentFilters,
@@ -11,9 +12,13 @@ import type {
   MonitorDto,
   RegisterInput,
   ResolveIncidentInput,
+  RunbookDto,
   ServiceDto,
+  SimilarIncidentDto,
+  SuggestionDto,
   UpdateIncidentInput,
   UpdateMonitorInput,
+  UpdateRunbookInput,
   UserDto,
 } from '@pulsewatch/shared';
 
@@ -186,5 +191,44 @@ export async function updateIncident(
   input: UpdateIncidentInput,
 ): Promise<IncidentDto> {
   const { data } = await api.patch<IncidentDto>(`/incidents/${id}`, input);
+  return data;
+}
+
+// ---------- incident memory ----------
+
+export async function listSimilarIncidents(id: number): Promise<SimilarIncidentDto[]> {
+  const { data } = await api.get<SimilarIncidentDto[]>(`/incidents/${id}/similar`);
+  return data;
+}
+
+export async function listSuggestions(id: number): Promise<SuggestionDto[]> {
+  const { data } = await api.get<SuggestionDto[]>(`/incidents/${id}/suggestions`);
+  return data;
+}
+
+// ---------- runbooks ----------
+
+export async function listRunbooks(serviceId?: number): Promise<RunbookDto[]> {
+  const { data } = await api.get<RunbookDto[]>('/runbooks', {
+    params: serviceId ? { serviceId } : undefined,
+  });
+  return data;
+}
+
+export async function getRunbook(id: number): Promise<RunbookDto> {
+  const { data } = await api.get<RunbookDto>(`/runbooks/${id}`);
+  return data;
+}
+
+export async function createRunbook(input: CreateRunbookInput): Promise<RunbookDto> {
+  const { data } = await api.post<RunbookDto>('/runbooks', input);
+  return data;
+}
+
+export async function updateRunbook(
+  id: number,
+  input: UpdateRunbookInput,
+): Promise<RunbookDto> {
+  const { data } = await api.patch<RunbookDto>(`/runbooks/${id}`, input);
   return data;
 }

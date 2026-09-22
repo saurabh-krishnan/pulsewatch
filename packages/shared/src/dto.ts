@@ -82,6 +82,42 @@ export interface IncidentDto {
   events?: IncidentEventDto[];
 }
 
+export interface SimilarIncidentDto {
+  id: number;
+  title: string;
+  serviceId: number;
+  serviceName: string;
+  errorType: string | null;
+  severity: IncidentSeverity;
+  openedAt: string;
+  resolvedAt: string | null;
+  resolutionNote: string | null;
+  /** 0-100+, higher is a stronger match. */
+  score: number;
+  /** Why it matched, e.g. ["same fingerprint", "same service"]. */
+  reasons: string[];
+}
+
+export interface SuggestionDto {
+  runbookId: number;
+  title: string;
+  timesTried: number;
+  timesWorked: number;
+  /** Laplace-smoothed, 0-1. */
+  successRate: number;
+}
+
+export interface RunbookDto {
+  id: number;
+  serviceId: number | null;
+  serviceName: string | null;
+  title: string;
+  bodyMd: string;
+  version: number;
+  updatedAt: string;
+  updatedByName: string | null;
+}
+
 export interface CheckResultDto {
   id: number;
   checkedAt: string;

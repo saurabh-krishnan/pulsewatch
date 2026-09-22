@@ -151,3 +151,50 @@ The state machine only fires `open_incident` on the transition into DOWN, so no 
 incident appears until the monitor recovers and fails again. That is the correct behaviour
 for a machine with no memory of manual actions, but it does mean a premature manual resolve
 leaves an ongoing outage without an active incident. Worth revisiting if it bites.
+
+## Phase 4 — incident memory
+
+**`@pulsewatch/shared` gained a second entry point specifically so the browser never sees
+`node:crypto`.** Fingerprinting is imported as `@pulsewatch/shared/fingerprint` by the API,
+worker and seed; the root entry stays browser-safe for the Zod schemas the forms use.
+
+**Normalization order is the whole trick, and the tests pin it.**
+UUIDs, timestamps, URLs, emails and IPs are replaced before the generic `\d+` rule, because
+once bare numbers are substituted a UUID is an unrecoverable mess of `<num>` fragments.
+Three tests assert exactly that ordering rather than just the final output, so a future
+tidy-up of the rules cannot silently break grouping.
+
+Proof it works: the seed's 26 historical incidents collapse into 12 fingerprints. The five
+pool-exhaustion incidents differ in connection counts and wait times, and the four database
+timeouts differ in timestamp, IP, port and request UUID — each family becomes one hash.
+
+**The fingerprint upsert runs before the incident insert, and outside its transaction.**
+An occurrence happened whether or not this worker wins the race to create the incident, so
+the count should reflect it. The upsert is a single `ON CONFLICT DO UPDATE`, so two workers
+seeing the same error both increment instead of one overwriting the other.
+
+**Manual incidents are fingerprinted too, on `description` or failing that `title`.**
+It means a hand-raised incident can match a past machine-detected one. The error type
+defaults to `MANUAL` so a human's phrasing never collides with a real `TIMEOUT` group.
+
+**Candidate selection in SQL, scoring in TypeScript.**
+The SQL narrows to ~100 rows using the fingerprint, the service, or a trigram similarity
+above 0.3 — the part that needs indexes. The weighting then runs in plain TypeScript, where
+it is unit-tested against the guide's worked examples without a database anywhere near it.
+
+**Same service plus same error type scores 25, below the cutoff of 30, on purpose.**
+That combination describes half the history of a busy service. Without text agreement it is
+not a memory, it is noise. A test documents the boundary: the pair needs a similarity of at
+least 0.2 to surface. An exact fingerprint match alone always clears the bar.
+
+**Suggestions are computed over the top 5 similar incidents, not all history.**
+This makes the evidence a sliding window, which is subtle in practice: resolving a new
+incident can add a success while an older one drops out of the window, leaving the ratio
+apparently unchanged. Observed exactly that during testing — "restart the pool" stayed at
+4 of 5 because the incident that fell out had also succeeded. Correct, but worth knowing
+before trusting a ratio that did not move.
+
+**Every resolution records what was tried, including what failed.**
+The resolve dialog offers "not tried / tried / worked / did not" per runbook, and only the
+touched ones are sent. Failures are the more valuable signal: without them a runbook that
+never works keeps its perfect record, because nobody logs the attempts that did nothing.

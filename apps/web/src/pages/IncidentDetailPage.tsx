@@ -7,10 +7,12 @@ import {
   commentOnIncident,
   errorMessage,
   getIncident,
+  listRunbooks,
   resolveIncident,
   updateIncident,
 } from '../api/client';
 import { useAuth } from '../auth/useAuth';
+import { SeenBefore } from '../components/SeenBefore';
 import {
   Button,
   Card,
@@ -68,6 +70,10 @@ export function IncidentDetailPage() {
   const [note, setNote] = useState('');
   const [showResolve, setShowResolve] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** runbookId -> worked. `undefined` means it was not tried at all. */
+  const [runbookOutcomes, setRunbookOutcomes] = useState<Record<number, boolean | null | undefined>>(
+    {},
+  );
 
   const { data: incident, isLoading } = useQuery({
     queryKey: ['incident', incidentId],
@@ -75,6 +81,16 @@ export function IncidentDetailPage() {
     enabled: Number.isInteger(incidentId),
     refetchInterval: 15_000,
   });
+
+  const { data: runbooks } = useQuery({
+    queryKey: ['runbooks', incident?.serviceId],
+    queryFn: () => listRunbooks(incident!.serviceId),
+    enabled: !!incident,
+  });
+
+  function setOutcome(runbookId: number, worked: boolean | null | undefined) {
+    setRunbookOutcomes((o) => ({ ...o, [runbookId]: worked }));
+  }
 
   function refresh() {
     queryClient.invalidateQueries({ queryKey: ['incident', incidentId] });
@@ -93,10 +109,21 @@ export function IncidentDetailPage() {
   });
 
   const resolve = useMutation({
-    mutationFn: () => resolveIncident(incidentId, { note }),
+    mutationFn: () =>
+      resolveIncident(incidentId, {
+        note,
+        // Only send the ones actually touched; "not tried" is not a data point.
+        runbooks: Object.entries(runbookOutcomes)
+          .filter(([, worked]) => worked !== undefined)
+          .map(([runbookId, worked]) => ({
+            runbookId: Number(runbookId),
+            worked: worked as boolean | null,
+          })),
+      }),
     onSuccess: () => {
       setError(null);
       setNote('');
+      setRunbookOutcomes({});
       setShowResolve(false);
       refresh();
     },
@@ -201,7 +228,7 @@ export function IncidentDetailPage() {
               e.preventDefault();
               resolve.mutate();
             }}
-            className="space-y-3"
+            className="space-y-4"
           >
             <label className="block text-sm font-medium text-slate-700">
               What fixed it?
@@ -211,15 +238,62 @@ export function IncidentDetailPage() {
                 placeholder="Restarted the DB connection pool"
               />
             </label>
-            <p className="text-xs text-slate-500">
-              Phase 4 adds &ldquo;which runbook did you try, and did it work?&rdquo; here.
-            </p>
+
+            <div>
+              <p className="text-sm font-medium text-slate-700">
+                Which runbooks did you try, and did they work?
+              </p>
+              <p className="mt-0.5 text-xs text-slate-500">
+                This is what ranks suggestions for the next incident, so it is worth a moment.
+              </p>
+              <ul className="mt-2 space-y-2">
+                {runbooks?.map((r) => {
+                  const state = runbookOutcomes[r.id];
+                  return (
+                    <li key={r.id} className="flex items-center justify-between gap-3">
+                      <span className="text-sm">{r.title}</span>
+                      <div className="flex shrink-0 gap-1">
+                        {(
+                          [
+                            ['not tried', undefined],
+                            ['tried', null],
+                            ['worked', true],
+                            ['did not', false],
+                          ] as const
+                        ).map(([label, value]) => (
+                          <button
+                            key={label}
+                            type="button"
+                            onClick={() => setOutcome(r.id, value)}
+                            className={`rounded border px-2 py-1 text-xs transition-colors ${
+                              state === value
+                                ? 'border-slate-900 bg-slate-900 text-white'
+                                : 'border-slate-300 bg-white text-slate-600 hover:bg-slate-50'
+                            }`}
+                          >
+                            {label}
+                          </button>
+                        ))}
+                      </div>
+                    </li>
+                  );
+                })}
+                {runbooks?.length === 0 && (
+                  <li className="text-xs text-slate-500">
+                    No runbooks for this service yet. Write one and it becomes suggestible.
+                  </li>
+                )}
+              </ul>
+            </div>
+
             <Button type="submit" disabled={resolve.isPending}>
               {resolve.isPending ? 'Resolving…' : 'Mark resolved'}
             </Button>
           </form>
         </Card>
       )}
+
+      <SeenBefore incidentId={incidentId} />
 
       <h2 className="mt-8 text-sm font-semibold text-slate-700">Timeline</h2>
       <Card className="mt-3">

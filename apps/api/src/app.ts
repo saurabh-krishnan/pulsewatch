@@ -8,6 +8,7 @@ import { authRouter } from './routes/auth.js';
 import { healthRouter } from './routes/health.js';
 import { incidentsRouter } from './routes/incidents.js';
 import { monitorsRouter } from './routes/monitors.js';
+import { runbooksRouter } from './routes/runbooks.js';
 import { servicesRouter } from './routes/services.js';
 
 export function createApp() {
@@ -25,6 +26,7 @@ export function createApp() {
   app.use('/api', servicesRouter);
   app.use('/api', monitorsRouter);
   app.use('/api', incidentsRouter);
+  app.use('/api', runbooksRouter);
 
   app.use(notFound);
   app.use(errorHandler);

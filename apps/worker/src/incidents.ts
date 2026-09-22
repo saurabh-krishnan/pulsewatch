@@ -6,6 +6,7 @@
  * the history this product exists to keep.
  */
 import type { ErrorType, IncidentSeverity } from '@pulsewatch/shared';
+import { upsertFingerprint } from '@pulsewatch/shared/fingerprint';
 import { Prisma } from '@prisma/client';
 import { prisma } from './db.js';
 import type { CheckOutcome } from './checker.js';
@@ -53,12 +54,17 @@ export async function openIncident(
   const serviceName = service?.name ?? `service ${monitor.service_id}`;
   const errorMessage = outcome.errorMessage ?? 'check failed';
 
+  // Fingerprint first: the upsert must land even if the incident insert then
+  // loses the race to another worker, because the occurrence still happened.
+  const fp = await upsertFingerprint(prisma, outcome.errorType ?? 'UNKNOWN', errorMessage);
+
   try {
     const incident = await prisma.$transaction(async (tx) => {
       const created = await tx.incident.create({
         data: {
           serviceId: monitor.service_id,
           monitorId: monitor.id,
+          fingerprintId: fp.id,
           title: `${serviceName} health check failing`,
           description:
             `Monitor ${monitor.url} failed ${monitor.failure_threshold} consecutive checks.\n` +
@@ -75,7 +81,9 @@ export async function openIncident(
           incidentId: created.id,
           userId: null, // system
           type: 'opened',
-          message: `${monitor.failure_threshold} failed checks (${errorMessage})`,
+          message:
+            `${monitor.failure_threshold} failed checks (${errorMessage})` +
+            (fp.occurrences > 1 ? ` — this error has been seen ${fp.occurrences} times` : ''),
         },
       });
 

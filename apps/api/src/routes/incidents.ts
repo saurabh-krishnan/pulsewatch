@@ -10,11 +10,14 @@ import {
   type IncidentSeverity,
   type IncidentSource,
   type IncidentStatus,
+  type ResolveIncidentInput,
 } from '@pulsewatch/shared';
+import { upsertFingerprint } from '@pulsewatch/shared/fingerprint';
 import { prisma } from '../db.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { intParam, validateBody } from '../middleware/validate.js';
+import { findSimilarIncidents, suggestRunbooks } from '../services/similarity.js';
 
 export const incidentsRouter = Router();
 
@@ -131,10 +134,16 @@ incidentsRouter.post(
       const service = await prisma.service.findUnique({ where: { id: serviceId } });
       if (!service) throw new HttpError(404, 'NOT_FOUND', 'Service not found');
 
+      // A manual incident has no error message, so the description carries the
+      // signal; the title is the fallback. Same treatment either way, so a
+      // hand-raised incident can still match a past machine-detected one.
+      const fp = await upsertFingerprint(prisma, errorType || 'MANUAL', description || title);
+
       const incident = await prisma.$transaction(async (tx) => {
         const created = await tx.incident.create({
           data: {
             serviceId,
+            fingerprintId: fp.id,
             title,
             description: description || null,
             errorType: errorType || null,
@@ -233,7 +242,18 @@ incidentsRouter.post(
         throw new HttpError(409, 'ALREADY_RESOLVED', 'This incident is already resolved');
       }
 
-      const { note } = req.body;
+      // validateBody has already parsed this, so the shape is guaranteed.
+      const { note, runbooks } = req.body as ResolveIncidentInput;
+
+      const known = runbooks.length
+        ? await prisma.runbook.findMany({
+            where: { id: { in: runbooks.map((r) => r.runbookId) } },
+            select: { id: true, title: true },
+          })
+        : [];
+      const titleById = new Map(known.map((r) => [r.id, r.title]));
+      const valid = runbooks.filter((r) => titleById.has(r.runbookId));
+
       const updated = await prisma.$transaction(async (tx) => {
         const result = await tx.incident.update({
           where: { id },
@@ -244,6 +264,27 @@ incidentsRouter.post(
           },
           include: listInclude,
         });
+
+        // What was tried and what worked is the input to future suggestions,
+        // so it is recorded with the resolution rather than as an afterthought.
+        for (const r of valid) {
+          await tx.incidentRunbook.upsert({
+            where: { incidentId_runbookId: { incidentId: id, runbookId: r.runbookId } },
+            update: { worked: r.worked },
+            create: { incidentId: id, runbookId: r.runbookId, worked: r.worked },
+          });
+          await tx.incidentEvent.create({
+            data: {
+              incidentId: id,
+              userId: req.user!.sub,
+              type: 'runbook_used',
+              message:
+                `${titleById.get(r.runbookId)} — ` +
+                (r.worked === true ? 'fixed it' : r.worked === false ? 'did not help' : 'tried'),
+            },
+          });
+        }
+
         await tx.incidentEvent.create({
           data: {
             incidentId: id,
@@ -261,6 +302,30 @@ incidentsRouter.post(
     }
   },
 );
+
+/** Ranked past incidents that look like this one, with the reason for each. */
+incidentsRouter.get('/incidents/:id/similar', requireAuth, async (req, res, next) => {
+  try {
+    const id = intParam(req, 'id');
+    const incident = await prisma.incident.findUnique({ where: { id }, select: { id: true } });
+    if (!incident) throw new HttpError(404, 'NOT_FOUND', 'Incident not found');
+    res.json(await findSimilarIncidents(id));
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** Runbooks that fixed those similar incidents, ranked by success rate. */
+incidentsRouter.get('/incidents/:id/suggestions', requireAuth, async (req, res, next) => {
+  try {
+    const id = intParam(req, 'id');
+    const incident = await prisma.incident.findUnique({ where: { id }, select: { id: true } });
+    if (!incident) throw new HttpError(404, 'NOT_FOUND', 'Incident not found');
+    res.json(await suggestRunbooks(id));
+  } catch (err) {
+    next(err);
+  }
+});
 
 incidentsRouter.post(
   '/incidents/:id/comments',
