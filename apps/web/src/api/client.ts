@@ -14,6 +14,10 @@ export interface HealthResponse {
 }
 
 export async function getHealth(): Promise<HealthResponse> {
-  const { data } = await api.get<HealthResponse>('/health');
+  const { data } = await api.get<HealthResponse>('/health', {
+    // 503 means "API is up, database is down". That is an answer, not a failure,
+    // so let it through and report it rather than showing "API unreachable".
+    validateStatus: (s) => s === 200 || s === 503,
+  });
   return data;
 }

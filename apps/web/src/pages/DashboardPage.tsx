@@ -25,20 +25,28 @@ export function DashboardPage() {
           </p>
         )}
         {data && (
-          <dl className="mt-3 grid grid-cols-3 gap-4 text-sm">
-            <div>
-              <dt className="text-slate-500">API</dt>
-              <dd className="font-medium">{data.status}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Database</dt>
-              <dd className="font-medium">{data.database}</dd>
-            </div>
-            <div>
-              <dt className="text-slate-500">Uptime</dt>
-              <dd className="font-medium">{data.uptimeSeconds}s</dd>
-            </div>
-          </dl>
+          <>
+            <dl className="mt-3 grid grid-cols-3 gap-4 text-sm">
+              <div>
+                <dt className="text-slate-500">API</dt>
+                <dd className="font-medium">{data.status}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-500">Database</dt>
+                <dd className="font-medium">{data.database}</dd>
+              </div>
+              <div>
+                <dt className="text-slate-500">Uptime</dt>
+                <dd className="font-medium">{data.uptimeSeconds}s</dd>
+              </div>
+            </dl>
+            {data.database === 'down' && (
+              <p className="mt-3 text-sm text-slate-500">
+                The API is running but cannot reach Postgres. Start it with{' '}
+                <code>npm run db:up</code>.
+              </p>
+            )}
+          </>
         )}
       </section>
     </div>
