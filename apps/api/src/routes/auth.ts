@@ -1,8 +1,13 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import rateLimit from 'express-rate-limit';
 import { loginSchema, registerSchema, type AuthResponse, type UserDto } from '@pulsewatch/shared';
 import { prisma } from '../db.js';
-import { hashPassword, signToken, verifyPassword } from '../lib/auth.js';
+import {
+  hashPassword,
+  signToken,
+  TIMING_EQUALIZER_HASH,
+  verifyPassword,
+} from '../lib/auth.js';
 import { requireAuth } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { validateBody } from '../middleware/validate.js';
@@ -16,6 +21,18 @@ const loginLimiter = rateLimit({
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: { code: 'RATE_LIMITED', message: 'Too many attempts, try again later' } },
+});
+
+/**
+ * Registration reveals whether an email is taken (it has to, to be usable),
+ * and creates rows. Both make unthrottled signup worth limiting.
+ */
+const registerLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  limit: 10,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: { code: 'RATE_LIMITED', message: 'Too many sign-ups, try again later' } },
 });
 
 function toUserDto(u: {
@@ -34,7 +51,7 @@ function toUserDto(u: {
   };
 }
 
-authRouter.post('/auth/register', validateBody(registerSchema), async (req, res, next) => {
+authRouter.post('/auth/register', registerLimiter, validateBody(registerSchema), async (req, res, next) => {
   try {
     const { name, email, password } = req.body;
 
@@ -70,9 +87,9 @@ authRouter.post('/auth/login', loginLimiter, validateBody(loginSchema), async (r
     const { email, password } = req.body;
     const user = await prisma.user.findUnique({ where: { email } });
 
-    // Same message and roughly the same work either way, so the response does
-    // not reveal whether the email exists.
-    const ok = user ? await verifyPassword(password, user.passwordHash) : false;
+    // Always run bcrypt, against a stand-in hash when there is no user, so an
+    // unknown email is neither a different message nor a faster response.
+    const ok = await verifyPassword(password, user?.passwordHash ?? TIMING_EQUALIZER_HASH);
     if (!user || !ok) {
       throw new HttpError(401, 'INVALID_CREDENTIALS', 'Email or password is incorrect');
     }

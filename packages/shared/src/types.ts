@@ -14,4 +14,6 @@ export type ErrorType =
   | 'TLS_ERROR'
   | 'UNEXPECTED_STATUS'
   | 'DB_TIMEOUT'
+  /** Refused by the SSRF policy: the target is a private or reserved address. */
+  | 'BLOCKED_TARGET'
   | 'UNKNOWN';

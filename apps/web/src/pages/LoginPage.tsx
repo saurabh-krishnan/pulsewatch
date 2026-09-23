@@ -19,8 +19,13 @@ export function LoginPage() {
     setError(null);
     try {
       signIn(await login({ email, password }));
-      // Return the user to wherever they were headed before the redirect.
-      const from = (location.state as { from?: string } | null)?.from ?? '/';
+      // Return the user to wherever they were headed: either the route guard's
+      // redirect state, or ?next= from an expired session.
+      const next = new URLSearchParams(location.search).get('next');
+      const from =
+        (location.state as { from?: string } | null)?.from ??
+        // Only same-site paths, so ?next= cannot be used as an open redirect.
+        (next && next.startsWith('/') && !next.startsWith('//') ? next : '/');
       navigate(from, { replace: true });
     } catch (err) {
       setError(errorMessage(err, 'Could not sign in'));

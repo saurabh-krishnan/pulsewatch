@@ -5,8 +5,20 @@
  * looks: these error messages are what Phase 4 fingerprints, so they must
  * describe the failure the same way every time, with the variable parts
  * (timeouts, hosts, ports) in predictable positions.
+ *
+ * Uses node:http rather than fetch because http.request accepts a `lookup`
+ * hook, and that hook is where the SSRF policy is enforced against the address
+ * actually being connected to (see @pulsewatch/shared/ssrf).
  */
+import http from 'node:http';
+import https from 'node:https';
 import type { ErrorType } from '@pulsewatch/shared';
+import {
+  BlockedTargetError,
+  checkMonitorUrl,
+  createGuardedLookup,
+  type TargetPolicy,
+} from '@pulsewatch/shared/ssrf';
 
 export interface CheckTarget {
   url: string;
@@ -23,7 +35,7 @@ export interface CheckOutcome {
   errorType: ErrorType | null;
 }
 
-/** Node puts the OS-level failure in `err.cause.code`. */
+/** Node puts the OS-level failure in `err.code`, or in `err.cause.code` for fetch. */
 function causeCode(err: unknown): string | null {
   if (err && typeof err === 'object' && 'cause' in err) {
     const cause = (err as { cause?: unknown }).cause;
@@ -50,10 +62,20 @@ function hostPort(url: string): string {
  * Maps a thrown error to a stable type and message. Exported for unit tests:
  * this is the part that decides what Phase 4 will group on.
  */
-export function classifyError(err: unknown, target: CheckTarget): {
+export function classifyError(
+  err: unknown,
+  target: CheckTarget,
+): {
   errorType: ErrorType;
   errorMessage: string;
 } {
+  if (err instanceof BlockedTargetError || causeCode(err) === 'ERR_SSRF_BLOCKED') {
+    return {
+      errorType: 'BLOCKED_TARGET',
+      errorMessage: `Blocked by SSRF policy: ${(err as Error).message}`,
+    };
+  }
+
   if (err instanceof Error && err.name === 'AbortError') {
     return {
       errorType: 'TIMEOUT',
@@ -106,36 +128,81 @@ export function classifyStatus(
   };
 }
 
-export async function runCheck(target: CheckTarget): Promise<CheckOutcome> {
+/**
+ * One request. Redirects are deliberately not followed: a public URL that
+ * answers 302 Location: http://169.254.169.254/ must not be a way around the
+ * SSRF policy, and a monitor should report the redirect rather than hide it.
+ */
+export function sendRequest(
+  target: CheckTarget,
+  policy: TargetPolicy,
+  signal: AbortSignal,
+): Promise<{ status: number; statusText: string }> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(target.url);
+    const transport = url.protocol === 'https:' ? https : http;
+
+    const req = transport.request(
+      url,
+      {
+        method: target.method,
+        signal,
+        lookup: createGuardedLookup(policy),
+        // No connection pooling, deliberately. Node's global agent keeps sockets
+        // alive by default, and a reused socket skips DNS entirely -- so the
+        // guarded lookup above would never run. It would also make the monitor
+        // lie: a warm socket hides DNS, TCP and TLS time, and a server that has
+        // stopped accepting new connections still looks healthy over an old one.
+        agent: false,
+        headers: { 'user-agent': 'PulseWatch/1.0 (+uptime monitor)', connection: 'close' },
+      },
+      (res) => {
+        // Drain the body so the socket is released; the content is not needed.
+        res.resume();
+        res.on('end', () =>
+          resolve({ status: res.statusCode ?? 0, statusText: res.statusMessage ?? '' }),
+        );
+        res.on('error', reject);
+      },
+    );
+    req.on('error', reject);
+    req.end();
+  });
+}
+
+export async function runCheck(target: CheckTarget, policy: TargetPolicy): Promise<CheckOutcome> {
+  const startedAt = performance.now();
+  const elapsed = () => Math.round(performance.now() - startedAt);
+
+  // Fast, clear refusal for literals and reserved names. Hostnames are checked
+  // again by the guarded lookup at connect time, which is the real enforcement.
+  const pre = await checkMonitorUrl(target.url, policy);
+  if (!pre.ok) {
+    return {
+      success: false,
+      statusCode: null,
+      responseTimeMs: elapsed(),
+      errorType: 'BLOCKED_TARGET',
+      errorMessage: `Blocked by SSRF policy: ${pre.reason}`,
+    };
+  }
+
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), target.timeoutMs);
-  const startedAt = performance.now();
 
   try {
-    const response = await fetch(target.url, {
-      method: target.method,
-      signal: controller.signal,
-      redirect: 'manual',
-      headers: { 'user-agent': 'PulseWatch/1.0 (+uptime monitor)' },
-    });
-
-    // Drain the body so the socket is released; the content is not needed.
-    await response.arrayBuffer().catch(() => undefined);
-
-    const responseTimeMs = Math.round(performance.now() - startedAt);
-    const problem = classifyStatus(response.status, response.statusText, target.expectedStatus);
-
+    const { status, statusText } = await sendRequest(target, policy, controller.signal);
+    const problem = classifyStatus(status, statusText, target.expectedStatus);
     return {
       success: problem === null,
-      statusCode: response.status,
-      responseTimeMs,
+      statusCode: status,
+      responseTimeMs: elapsed(),
       errorMessage: problem?.errorMessage ?? null,
       errorType: problem?.errorType ?? null,
     };
   } catch (err) {
-    const responseTimeMs = Math.round(performance.now() - startedAt);
     const { errorType, errorMessage } = classifyError(err, target);
-    return { success: false, statusCode: null, responseTimeMs, errorMessage, errorType };
+    return { success: false, statusCode: null, responseTimeMs: elapsed(), errorMessage, errorType };
   } finally {
     clearTimeout(timer);
   }

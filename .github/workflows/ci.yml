@@ -5,13 +5,17 @@ on:
     branches: [main]
   pull_request:
 
+# Both jobs need the same throwaway database. The name must end in "_test":
+# the test suites refuse to truncate anything else.
 env:
+  TEST_DATABASE_URL: postgresql://pulsewatch:pulsewatch@localhost:5432/pulsewatch_test
   DATABASE_URL: postgresql://pulsewatch:pulsewatch@localhost:5432/pulsewatch_test
-  JWT_SECRET: ci-secret-not-real
+  JWT_SECRET: ci-only-secret-long-enough-for-hs256-signing
   CORS_ORIGIN: http://localhost:5173
 
 jobs:
   build:
+    name: lint, typecheck, unit + API tests, build
     runs-on: ubuntu-latest
 
     services:
@@ -30,9 +34,9 @@ jobs:
           --health-retries 10
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v5
         with:
           node-version: 22
           cache: npm
@@ -48,6 +52,55 @@ jobs:
 
       - run: npm run typecheck
 
-      - run: npm test
+      - name: Unit and API tests, with coverage thresholds
+        run: npx vitest run --coverage
 
       - run: npm run build
+
+  e2e:
+    name: end-to-end (Playwright)
+    runs-on: ubuntu-latest
+    needs: build
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: pulsewatch
+          POSTGRES_PASSWORD: pulsewatch
+          POSTGRES_DB: pulsewatch_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - run: npx prisma generate
+
+      - name: Install Chromium for Playwright
+        run: npx playwright install --with-deps chromium
+
+      - name: Run the browser tests against a full local stack
+        run: npx playwright test
+        env:
+          CI: '1'
+
+      - name: Keep traces from a failed run
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces
+          path: test-results/
+          retention-days: 7

@@ -69,8 +69,14 @@ A fresh install needs some way to get an admin without a chicken-and-egg problem
 alternative — an env var listing admin emails — is more configuration for no benefit at this
 size.
 
-**Login says "Email or password is incorrect" for both cases, and hashes even when the user
-does not exist.** Distinct messages would let someone enumerate which emails have accounts.
+**Login says "Email or password is incorrect" for both cases.** Distinct messages would let
+someone enumerate which emails have accounts.
+
+> **Correction (Phase 7):** this entry originally also said login "hashes even when the
+> user does not exist". It did not — the Phase 1 code skipped bcrypt for an unknown email,
+> so those requests answered ~50ms faster and the timing revealed which emails were real,
+> despite the identical message. Fixed in Phase 7; see "Login runs bcrypt for unknown
+> emails" below, which also covers the test that would have caught it.
 
 **Only `paused` and `unknown` can be set on a monitor through the API.**
 `up` and `down` belong to the worker's state machine. Accepting them over HTTP would let a
@@ -309,3 +315,84 @@ derived. Root cause, what went well, and action items stay `_(fill in)_`, becaus
 template that guesses at root cause is worse than one that asks. If the incident's
 fingerprint has been seen before, the document says so and asks whether the cause or only
 the symptom is being treated.
+
+## Phase 7 — testing and security
+
+**SSRF is defended in three layers, and only the last one is real enforcement.**
+1. The API checks a monitor URL when it is saved (create *and* edit — checking only on
+   create would make `PATCH` the way around it), so the mistake gets a clear 400.
+2. The worker checks again before every request, because DNS answers change over time.
+3. The worker's socket resolves hostnames through `createGuardedLookup`, which checks the
+   address actually being connected to. That is what stops DNS rebinding: a hostname that
+   resolved to a public address during checks 1 and 2 and a private one a millisecond later.
+
+Checks 1 and 2 alone leave a time-of-check/time-of-use gap; check 3 closes it. The API
+deliberately allows a hostname that does not resolve yet, because nothing can be reached
+through it today and check 3 will judge whatever it resolves to later.
+
+**The address rules are strict parsers, not regexes over the URL.**
+`new URL()` canonicalizes `http://2130706433/`, `http://0x7f000001/`, `http://0177.0.0.1/`
+and `http://127.1/` to `127.0.0.1` before the check runs, so each is caught as loopback.
+The tests prove the normalization rather than assume it: if it did not happen, those hosts
+would fall through to DNS, fail to resolve, and be *allowed* — and the tests would fail.
+IPv6 addresses carrying an IPv4 address (`::ffff:169.254.169.254`, NAT64, 6to4) are judged
+by the IPv4 inside them. Beyond the ranges the guide lists, CGNAT, multicast, benchmarking
+and reserved space are blocked too.
+
+**The checker moved from `fetch` to `http.request`.** `fetch` has no supported hook for the
+connection's DNS lookup; `http.request` takes a `lookup` option, which is where check 3 lives.
+
+**Checks never reuse a connection (`agent: false`).** Found by a test, not by design: Node
+19+ makes the global HTTP agent keep-alive by default, and a request that reuses a pooled
+socket skips DNS entirely — so the guarded lookup never ran and a strict-policy request went
+straight through a socket a permissive one had opened. In production the policy is fixed per
+process, so that exact case could not occur, but it made the security check depend on
+connection history. It was also a monitoring bug in its own right: a warm socket hides DNS,
+TCP and TLS time from the measurement, and a server that has stopped accepting *new*
+connections still looks healthy over an old one.
+
+**Redirects are not followed.** A public URL answering `302 Location: http://169.254.169.254/`
+would otherwise bounce the worker inward. The monitor reports the 302 instead.
+
+**Credentials in monitor URLs are refused.** They would be stored in plain text and printed
+in the worker's log lines, and `http://trusted@169.254.169.254` is a classic disguise.
+
+**Login runs bcrypt for unknown emails.** It compares against a fixed hash computed at
+startup, so "no such user" costs the same as "wrong password". The test spies on
+`bcrypt.compare` and asserts it runs for an unknown email; temporarily reverting to the
+Phase 1 code makes that test fail with "expected 1 call, got 0", which is the proof it
+guards the right thing. A timing assertion would have been flaky on shared CI runners.
+
+**Unsafe production settings refuse to boot rather than warn.** In production the API exits
+if `JWT_SECRET` is a known placeholder or shorter than 32 characters, and both the API and
+worker exit if `ALLOW_PRIVATE_MONITOR_TARGETS=true`. A specific internal host belongs in
+`MONITOR_HOST_ALLOWLIST` instead. A warning scrolls past in a deploy log; a failed deploy
+does not.
+
+**Malformed request bodies are the client's fault, and now say so.** `express.json()` throws
+for invalid JSON or an oversized body, and those errors used to fall through to the generic
+500. They now return 400 `INVALID_JSON` and 413 `PAYLOAD_TOO_LARGE`.
+
+**Registration is rate limited too.** It was the one unthrottled write reachable without an
+account, and it has to reveal whether an email is taken to be usable.
+
+**An expired session redirects to login.** With a one-hour JWT, sessions end mid-use; the
+UI used to show a page of errors. A 401 from any non-`/auth` route now drops the token and
+redirects, with `?next=` restricted to same-site paths so it cannot become an open redirect.
+
+**API tests run against a real Postgres, one file at a time, and cannot touch dev data.**
+Each file truncates every table, so the files run sequentially. Before migrating and before
+every reset, the suite checks that the database name ends in `_test` and refuses otherwise —
+verified by pointing it at the dev database, which it refused while leaving it untouched.
+The environment is set in a setup file that deliberately imports nothing from the app,
+because ES imports are hoisted and would parse the config before the overrides applied.
+
+**Every fix in this phase was mutation-tested.** Passing on the first run proves little, so
+each security fix was temporarily reverted to confirm its test fails: the timing fix, the
+malformed-JSON 400, the oversized-body 413, and the SSRF check on `PATCH`.
+
+**E2E runs a separate copy of the whole stack.** Playwright starts the API, worker, demo
+target and web on ports shifted by 10, against the test database, so it never collides with
+a running dev stack. The outage test is genuinely end to end — the incident appears because
+the real worker checked the real demo target and saw it fail. Locally it drives the Edge that
+ships with Windows, avoiding a browser download; CI installs Chromium.

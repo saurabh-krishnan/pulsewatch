@@ -8,6 +8,7 @@ import {
   type ServiceDto,
 } from '@pulsewatch/shared';
 import { prisma } from '../db.js';
+import { assertAllowedTarget } from '../lib/targets.js';
 import { generateApiKey } from '../middleware/apiKey.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errorHandler.js';
@@ -270,6 +271,8 @@ servicesRouter.post(
       const serviceId = intParam(req, 'id');
       const service = await prisma.service.findUnique({ where: { id: serviceId } });
       if (!service) throw new HttpError(404, 'NOT_FOUND', 'Service not found');
+
+      await assertAllowedTarget(req.body.url);
 
       const monitor = await prisma.monitor.create({
         data: { serviceId, ...req.body },

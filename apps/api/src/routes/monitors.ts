@@ -1,6 +1,7 @@
-import { Router } from 'express';
+﻿import { Router } from 'express';
 import { updateMonitorSchema, type MonitorDto, type MonitorStatus } from '@pulsewatch/shared';
 import { prisma } from '../db.js';
+import { assertAllowedTarget } from '../lib/targets.js';
 import { requireAuth, requireRole } from '../middleware/auth.js';
 import { HttpError } from '../middleware/errorHandler.js';
 import { intParam, validateBody } from '../middleware/validate.js';
@@ -64,7 +65,10 @@ monitorsRouter.patch(
       const existing = await prisma.monitor.findUnique({ where: { id } });
       if (!existing) throw new HttpError(404, 'NOT_FOUND', 'Monitor not found');
 
-      const { status } = req.body;
+      const { status, url } = req.body;
+      // Changing the URL is the obvious way around a check done only on create.
+      if (url !== undefined) await assertAllowedTarget(url);
+
       // Only pausing and resuming are user-driven. up/down/unknown belong to the
       // worker's state machine, so accepting them here would corrupt its view.
       if (status !== undefined && status !== 'paused' && status !== 'unknown') {

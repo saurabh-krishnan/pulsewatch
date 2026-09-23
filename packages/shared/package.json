@@ -5,7 +5,8 @@
   "type": "module",
   "exports": {
     ".": "./src/index.ts",
-    "./fingerprint": "./src/fingerprint.ts"
+    "./fingerprint": "./src/fingerprint.ts",
+    "./ssrf": "./src/ssrf.ts"
   },
   "scripts": {
     "typecheck": "tsc --build"

@@ -30,10 +30,17 @@
     "db:migrate": "prisma migrate dev",
     "db:generate": "prisma generate",
     "db:seed": "tsx prisma/seed.ts",
-    "db:studio": "prisma studio"
+    "db:studio": "prisma studio",
+    "test:unit": "vitest run --project unit",
+    "test:api": "vitest run --project api",
+    "test:e2e": "playwright test",
+    "e2e:api": "tsx apps/api/src/index.ts",
+    "e2e:worker": "tsx apps/worker/src/index.ts",
+    "e2e:demo": "tsx apps/demo-target/src/index.ts"
   },
   "devDependencies": {
     "@eslint/js": "^9.17.0",
+    "@playwright/test": "^1.63.0",
     "@types/node": "^22.10.2",
     "@vitest/coverage-v8": "^2.1.8",
     "eslint": "^9.17.0",

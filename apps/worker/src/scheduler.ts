@@ -7,7 +7,7 @@
 import { nextState, type MonitorState, type Status } from '@pulsewatch/shared';
 import { prisma } from './db.js';
 import { runCheck, type CheckOutcome } from './checker.js';
-import { env } from './env.js';
+import { env, targetPolicy } from './env.js';
 import { sendAlert } from './alerts.js';
 import { openIncident, resolveIncidentForMonitor } from './incidents.js';
 
@@ -120,12 +120,15 @@ export async function runCycle(): Promise<number> {
 
   await withConcurrency(monitors, env.WORKER_CONCURRENCY, async (monitor) => {
     try {
-      const outcome = await runCheck({
-        url: monitor.url,
-        method: monitor.method,
-        timeoutMs: monitor.timeout_ms,
-        expectedStatus: monitor.expected_status,
-      });
+      const outcome = await runCheck(
+        {
+          url: monitor.url,
+          method: monitor.method,
+          timeoutMs: monitor.timeout_ms,
+          expectedStatus: monitor.expected_status,
+        },
+        targetPolicy,
+      );
 
       const { state, action } = await recordResult(monitor, outcome);
 

@@ -14,6 +14,15 @@ export function verifyPassword(plain: string, hash: string): Promise<boolean> {
   return bcrypt.compare(plain, hash);
 }
 
+/**
+ * A real bcrypt hash of nothing in particular, computed once at startup.
+ * Login compares against it when the email is unknown, so "no such user" costs
+ * the same ~50ms of bcrypt as "wrong password". Without it an unknown email
+ * answers measurably faster, and response time alone reveals which emails have
+ * accounts -- even though the error message is identical.
+ */
+export const TIMING_EQUALIZER_HASH = bcrypt.hashSync('pulsewatch-timing-equalizer', SALT_ROUNDS);
+
 export interface TokenPayload {
   sub: number;
   email: string;

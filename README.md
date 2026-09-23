@@ -4,10 +4,9 @@ Uptime monitoring and incident knowledge platform. It watches your services, ope
 incident when something breaks, and shows what fixed the same problem last time — using
 error fingerprinting and ranked past fixes, not an AI model, so every match is explainable.
 
-> Status: **Phase 6 complete** — auth, services, monitors, the check worker, incidents with
-> an automatic timeline, incident memory, full-text search, alerting, an ingest API, a
-> dashboard, a public status page and auto-filled postmortems. See
-> [the project guide](../PulseWatch_Project_Guide.md) for the full 10-week build plan.
+> Status: **Phase 7 complete** — feature-complete, tested and security-hardened; deployment
+> (Phase 8) is next. See [the project guide](../PulseWatch_Project_Guide.md) for the full
+> 10-week build plan.
 
 ## How incident memory works
 
@@ -126,6 +125,44 @@ note — every one of those writes to the timeline.
 Note that all three seeded monitors point at the same demo target, so breaking it opens one
 incident per monitor. That is the partial unique index doing its job: one active incident
 per monitor, never one per service.
+
+## Testing
+
+| Suite | What it covers | Command |
+|---|---|---|
+| Unit | fingerprinting, state machine, scoring, postmortems, SSRF rules, schemas; the checker against a real local HTTP server | `npm run test:unit` |
+| API | Supertest against a real Postgres: auth, roles, the incident lifecycle, incident memory, ingest dedup, SSRF, headers, CORS, rate limits | `npm run test:api` |
+| E2E | Playwright against a full separate stack: log in → create a monitor → break the target → the worker opens an incident → acknowledge → resolve | `npm run test:e2e` |
+
+`npm test` runs unit and API together; add `-- --coverage` for the coverage report
+(thresholds: 90% lines/functions/statements, 85% branches on `packages/shared`).
+
+The API and E2E suites use the `pulsewatch_test` database and **truncate every table**, so
+they refuse to run against any database whose name does not end in `_test`. Override the
+location with the `TEST_DATABASE_URL` environment variable.
+
+E2E starts its own API, worker, demo target and web on ports 4010/4110/5183, so it does not
+interfere with a dev stack on the usual ports. Locally it drives Microsoft Edge; in CI it uses
+Chromium (`CI=1`, after `npx playwright install chromium`).
+
+## Security
+
+- **SSRF protection** on monitor URLs: private, loopback, link-local (including cloud
+  metadata at `169.254.169.254`), CGNAT, multicast and reserved addresses are refused, in
+  IPv4 and IPv6, including encodings such as `http://2130706433/` and
+  `http://[::ffff:169.254.169.254]/`. Enforced when a monitor is saved, again before each
+  check, and at connect time through a guarded DNS lookup, which also defeats DNS rebinding.
+  Redirects are never followed. Use `MONITOR_HOST_ALLOWLIST` to permit a specific internal host.
+- **Authentication:** bcrypt password hashes, one-hour JWTs, identical responses *and*
+  identical bcrypt work for unknown emails and wrong passwords, rate-limited login and sign-up.
+- **API keys** stored as SHA-256 hashes, shown once, revocable; ingest rate-limited per key.
+- **Transport:** Helmet security headers; CORS restricted to the configured frontend.
+- **Input:** Zod validation on every body; parameterized SQL only (raw queries use
+  positional parameters, audited); malformed JSON and oversized bodies return 4xx, never 500.
+- **Production guards:** the API and worker refuse to start with a placeholder `JWT_SECRET`
+  or with `ALLOW_PRIVATE_MONITOR_TARGETS=true`.
+
+See [DECISIONS.md](DECISIONS.md) for the reasoning behind each of these.
 
 ## Status page
 

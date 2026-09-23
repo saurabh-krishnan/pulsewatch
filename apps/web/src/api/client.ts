@@ -59,6 +59,30 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+/**
+ * Tokens expire after an hour on purpose. When one does mid-session, every
+ * request starts failing with 401; rather than leave the user staring at
+ * errors, drop the dead token and send them to sign in again. The /auth/
+ * routes are excluded because a 401 there means "wrong password", which the
+ * login form handles itself.
+ */
+api.interceptors.response.use(
+  (response) => response,
+  (error: unknown) => {
+    if (
+      error instanceof AxiosError &&
+      error.response?.status === 401 &&
+      getToken() &&
+      !error.config?.url?.startsWith('/auth/')
+    ) {
+      setToken(null);
+      const here = window.location.pathname + window.location.search;
+      window.location.assign(`/login?next=${encodeURIComponent(here)}`);
+    }
+    return Promise.reject(error);
+  },
+);
+
 /** Pulls the API's `{ error: { code, message } }` out of an axios failure. */
 export function errorMessage(err: unknown, fallback = 'Something went wrong'): string {
   if (err instanceof AxiosError) {
