@@ -4,8 +4,9 @@ Uptime monitoring and incident knowledge platform. It watches your services, ope
 incident when something breaks, and shows what fixed the same problem last time — using
 error fingerprinting and ranked past fixes, not an AI model, so every match is explainable.
 
-> Status: **Phase 5 complete** — auth, services, monitors, the check worker, incidents with
-> an automatic timeline, incident memory, full-text search, alerting and an ingest API. See
+> Status: **Phase 6 complete** — auth, services, monitors, the check worker, incidents with
+> an automatic timeline, incident memory, full-text search, alerting, an ingest API, a
+> dashboard, a public status page and auto-filled postmortems. See
 > [the project guide](../PulseWatch_Project_Guide.md) for the full 10-week build plan.
 
 ## How incident memory works
@@ -125,6 +126,27 @@ note — every one of those writes to the timeline.
 Note that all three seeded monitors point at the same demo target, so breaking it opens one
 incident per monitor. That is the partial unique index doing its job: one active incident
 per monitor, never one per service.
+
+## Status page
+
+`/status` is public — no login, and it exposes only service names, current status and
+daily uptime percentages. No monitor URLs, no error text, no incident detail.
+
+It reads the `uptime_daily` rollup rather than raw checks, so rendering 90 days costs 90
+small rows per monitor instead of scanning roughly 130,000 raw results. The worker
+recomputes the last three days hourly and deletes raw results past
+`RESULTS_RETENTION_DAYS`. To run it on demand:
+
+```bash
+npm run rollup -w @pulsewatch/worker
+```
+
+## Postmortems
+
+`GET /api/incidents/:id/postmortem` returns Markdown built from the timeline — duration,
+severity, who acknowledged, which runbook worked, linked commits. Root cause and action
+items are left blank on purpose. If the error signature has been seen before, the document
+says how many times and asks whether the cause or only the symptom is being treated.
 
 ## Alerting
 

@@ -462,6 +462,75 @@ function at(daysAgo: number, plusMinutes = 0): Date {
   return new Date(Date.now() - daysAgo * 86_400_000 + plusMinutes * 60_000);
 }
 
+/** Deterministic pseudo-random, so re-seeding produces the same status page. */
+function seededRandom(seed: number): () => number {
+  let s = seed;
+  return () => {
+    s = (s * 1103515245 + 12345) % 2147483648;
+    return s / 2147483648;
+  };
+}
+
+/**
+ * 90 days of uptime_daily rows per monitor (guide Phase 6 step 3).
+ *
+ * The worker's hourly rollup only ever sees data from the day it runs, so a
+ * fresh install has an empty status page. This backfills a plausible history,
+ * with the dips lined up against the seeded incidents so the page and the
+ * incident list tell the same story.
+ */
+async function seedUptimeHistory(
+  monitors: { id: number; serviceName: string; intervalSeconds: number }[],
+) {
+  const outageDaysByService = new Map<string, Map<number, number>>();
+  for (const h of HISTORY) {
+    const map = outageDaysByService.get(h.service) ?? new Map<number, number>();
+    map.set(h.daysAgo, (map.get(h.daysAgo) ?? 0) + h.durationMins);
+    outageDaysByService.set(h.service, map);
+  }
+
+  const rows: {
+    monitorId: number;
+    day: Date;
+    total: number;
+    successful: number;
+    avgResponseMs: number;
+  }[] = [];
+
+  for (const monitor of monitors) {
+    const rand = seededRandom(monitor.id * 7919);
+    const perDay = Math.floor(86_400 / monitor.intervalSeconds);
+    const outages = outageDaysByService.get(monitor.serviceName) ?? new Map<number, number>();
+
+    for (let daysAgo = 89; daysAgo >= 0; daysAgo--) {
+      const day = new Date(Date.now() - daysAgo * 86_400_000);
+      day.setUTCHours(0, 0, 0, 0);
+
+      // Today is only partly elapsed.
+      const elapsed = daysAgo === 0 ? Math.max(1, Math.floor(perDay * 0.4)) : perDay;
+
+      const outageMins = outages.get(daysAgo) ?? 0;
+      const failed = outageMins
+        ? Math.min(elapsed, Math.ceil((outageMins * 60) / monitor.intervalSeconds))
+        : rand() < 0.08
+          ? Math.floor(rand() * 3) // the occasional blip on a normal day
+          : 0;
+
+      rows.push({
+        monitorId: monitor.id,
+        day,
+        total: elapsed,
+        successful: elapsed - failed,
+        avgResponseMs: 40 + Math.floor(rand() * 90) + (outageMins ? 300 : 0),
+      });
+    }
+  }
+
+  // One statement rather than 270 round trips.
+  await prisma.uptimeDaily.createMany({ data: rows, skipDuplicates: true });
+  return rows.length;
+}
+
 async function main() {
   const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
 
@@ -479,6 +548,7 @@ async function main() {
   console.log(`[seed] ${users.length} users (password for all: ${DEMO_PASSWORD})`);
 
   const serviceIds = new Map<string, number>();
+  const monitorsForHistory: { id: number; serviceName: string; intervalSeconds: number }[] = [];
   for (const s of SERVICES) {
     const service = await prisma.service.upsert({
       where: { name: s.name },
@@ -494,13 +564,19 @@ async function main() {
     serviceIds.set(s.name, service.id);
 
     const existing = await prisma.monitor.findFirst({ where: { serviceId: service.id } });
-    if (existing) {
-      await prisma.monitor.update({ where: { id: existing.id }, data: s.monitor });
-    } else {
-      await prisma.monitor.create({ data: { serviceId: service.id, ...s.monitor } });
-    }
+    const monitor = existing
+      ? await prisma.monitor.update({ where: { id: existing.id }, data: s.monitor })
+      : await prisma.monitor.create({ data: { serviceId: service.id, ...s.monitor } });
+    monitorsForHistory.push({
+      id: monitor.id,
+      serviceName: s.name,
+      intervalSeconds: s.monitor.intervalSeconds,
+    });
   }
   console.log(`[seed] ${SERVICES.length} services, each with one monitor`);
+
+  const uptimeRows = await seedUptimeHistory(monitorsForHistory);
+  console.log(`[seed] ${uptimeRows} uptime_daily rows (90 days x ${SERVICES.length} monitors)`);
 
   const runbookIds = new Map<string, number>();
   for (const rb of RUNBOOKS) {

@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import {
+  buildPostmortem,
   commentSchema,
   createIncidentSchema,
   incidentFiltersSchema,
@@ -367,6 +368,56 @@ incidentsRouter.post(
     }
   },
 );
+
+/** Markdown postmortem filled in from the timeline (guide 7.7). */
+incidentsRouter.get('/incidents/:id/postmortem', requireAuth, async (req, res, next) => {
+  try {
+    const incident = await prisma.incident.findUnique({
+      where: { id: intParam(req, 'id') },
+      include: {
+        service: { select: { name: true } },
+        fingerprint: { select: { occurrences: true } },
+        commits: { orderBy: { id: 'asc' } },
+        events: {
+          include: { user: { select: { name: true } } },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+    if (!incident) throw new HttpError(404, 'NOT_FOUND', 'Incident not found');
+
+    const markdown = buildPostmortem({
+      id: incident.id,
+      title: incident.title,
+      serviceName: incident.service.name,
+      severity: incident.severity,
+      source: incident.source,
+      errorType: incident.errorType,
+      openedAt: incident.openedAt.toISOString(),
+      acknowledgedAt: incident.acknowledgedAt?.toISOString() ?? null,
+      resolvedAt: incident.resolvedAt?.toISOString() ?? null,
+      resolutionNote: incident.resolutionNote,
+      seenBefore: incident.fingerprint?.occurrences ?? 0,
+      commits: incident.commits.map((c) => ({
+        kind: c.kind,
+        repo: c.repo,
+        commitSha: c.commitSha,
+        prUrl: c.prUrl,
+      })),
+      events: incident.events.map((e) => ({
+        type: e.type,
+        message: e.message,
+        createdAt: e.createdAt.toISOString(),
+        userName: e.user?.name ?? null,
+      })),
+    });
+
+    // Markdown, not JSON: the point is to paste it somewhere.
+    res.type('text/markdown; charset=utf-8').send(markdown);
+  } catch (err) {
+    next(err);
+  }
+});
 
 /** Ranked past incidents that look like this one, with the reason for each. */
 incidentsRouter.get('/incidents/:id/similar', requireAuth, async (req, res, next) => {

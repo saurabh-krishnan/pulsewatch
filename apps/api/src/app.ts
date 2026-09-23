@@ -9,9 +9,11 @@ import { healthRouter } from './routes/health.js';
 import { incidentsRouter } from './routes/incidents.js';
 import { ingestRouter } from './routes/ingest.js';
 import { monitorsRouter } from './routes/monitors.js';
+import { publicRouter } from './routes/publicStatus.js';
 import { runbooksRouter } from './routes/runbooks.js';
 import { searchRouter } from './routes/search.js';
 import { servicesRouter } from './routes/services.js';
+import { statsRouter } from './routes/stats.js';
 
 export function createApp() {
   const app = express();
@@ -30,8 +32,11 @@ export function createApp() {
   app.use('/api', incidentsRouter);
   app.use('/api', runbooksRouter);
   app.use('/api', searchRouter);
+  app.use('/api', statsRouter);
   // Authenticated by API key, not JWT.
   app.use('/api', ingestRouter);
+  // No authentication at all: this is what customers see.
+  app.use('/api', publicRouter);
 
   app.use(notFound);
   app.use(errorHandler);

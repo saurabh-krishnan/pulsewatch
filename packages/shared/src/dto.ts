@@ -134,6 +134,52 @@ export interface IncidentCommitDto {
   prUrl: string | null;
 }
 
+export interface ServiceHealthDto {
+  serviceId: number;
+  serviceName: string;
+  status: 'up' | 'down' | 'paused' | 'unknown';
+  monitors: number;
+}
+
+export interface StatsOverviewDto {
+  openIncidents: number;
+  acknowledgedIncidents: number;
+  resolvedLast30Days: number;
+  /** Mean time to resolve, last 30 days. null when nothing has been resolved. */
+  mttrSeconds: number | null;
+  /** Mean time to acknowledge, last 30 days. */
+  mttaSeconds: number | null;
+  /** Share of fingerprinted incidents whose error had been seen before. */
+  repeatRate: number | null;
+  repeatCount: number;
+  fingerprintedIncidents: number;
+  perService: { serviceId: number; serviceName: string; incidents: number; open: number }[];
+  health: ServiceHealthDto[];
+}
+
+export interface UptimeDayDto {
+  day: string;
+  total: number;
+  successful: number;
+  /** null means no checks were recorded that day. */
+  uptime: number | null;
+}
+
+export interface PublicServiceDto {
+  serviceId: number;
+  name: string;
+  description: string | null;
+  status: 'up' | 'down' | 'unknown';
+  uptime90d: number | null;
+  history: UptimeDayDto[];
+}
+
+export interface PublicStatusDto {
+  generatedAt: string;
+  days: number;
+  services: PublicServiceDto[];
+}
+
 export interface IngestResponse {
   incidentId: number;
   /** false means it was deduplicated into an existing open incident. */

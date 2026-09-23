@@ -5,6 +5,7 @@
 // '@pulsewatch/shared/fingerprint'.
 export * from './stateMachine.js';
 export * from './scoring.js';
+export * from './postmortem.js';
 export * from './types.js';
 export * from './schemas.js';
 export * from './dto.js';

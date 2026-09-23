@@ -210,6 +210,19 @@ Content-Type: application/json
 
 { "errorType": "DB_TIMEOUT", "message": "no key" }
 
+# ---------- stats, status page, postmortem ----------
+
+### Dashboard numbers: MTTR, MTTA, repeat rate, health, per-service counts
+GET {{api}}/stats/overview
+Authorization: Bearer {{token}}
+
+### Public status page data -- deliberately needs NO auth
+GET {{api}}/public/status
+
+### Postmortem, as Markdown
+GET {{api}}/incidents/11/postmortem
+Authorization: Bearer {{token}}
+
 # ---------- demo target ----------
 
 ### What the alerting webhook received (sink for local testing)

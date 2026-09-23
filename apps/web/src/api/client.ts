@@ -5,7 +5,9 @@ import type {
   CheckResultDto,
   IncidentCommitDto,
   LinkCommitInput,
+  PublicStatusDto,
   SearchResponse,
+  StatsOverviewDto,
   CreateIncidentInput,
   CreateMonitorInput,
   CreateRunbookInput,
@@ -207,6 +209,28 @@ export async function listSimilarIncidents(id: number): Promise<SimilarIncidentD
 
 export async function listSuggestions(id: number): Promise<SuggestionDto[]> {
   const { data } = await api.get<SuggestionDto[]>(`/incidents/${id}/suggestions`);
+  return data;
+}
+
+// ---------- stats, status page, postmortem ----------
+
+export async function getStatsOverview(): Promise<StatsOverviewDto> {
+  const { data } = await api.get<StatsOverviewDto>('/stats/overview');
+  return data;
+}
+
+/** Public: deliberately does not send the auth header path through login. */
+export async function getPublicStatus(): Promise<PublicStatusDto> {
+  const { data } = await api.get<PublicStatusDto>('/public/status');
+  return data;
+}
+
+export async function getPostmortem(incidentId: number): Promise<string> {
+  const { data } = await api.get<string>(`/incidents/${incidentId}/postmortem`, {
+    // The endpoint returns Markdown, not JSON.
+    responseType: 'text',
+    transformResponse: [(d) => d],
+  });
   return data;
 }
 

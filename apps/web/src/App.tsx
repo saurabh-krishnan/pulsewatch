@@ -10,6 +10,7 @@ import { RegisterPage } from './pages/RegisterPage';
 import { RunbookDetailPage } from './pages/RunbookDetailPage';
 import { RunbooksPage } from './pages/RunbooksPage';
 import { SearchPage } from './pages/SearchPage';
+import { StatusPage } from './pages/StatusPage';
 import { ServiceDetailPage } from './pages/ServiceDetailPage';
 import { ServicesPage } from './pages/ServicesPage';
 
@@ -18,8 +19,8 @@ export default function App() {
     <Routes>
       <Route path="/login" element={<LoginPage />} />
       <Route path="/register" element={<RegisterPage />} />
-      {/* Public: the status page deliberately needs no login (Phase 6). */}
-      <Route path="/status" element={<PlaceholderPage title="Status page" phase="Phase 6" />} />
+      {/* Public: the status page deliberately needs no login. */}
+      <Route path="/status" element={<StatusPage />} />
 
       <Route element={<ProtectedRoute />}>
         <Route element={<Layout />}>

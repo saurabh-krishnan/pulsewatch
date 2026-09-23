@@ -259,3 +259,53 @@ wrong.
 **Ingest is rate limited per API key, not per IP.**
 An SDK retrying during an outage comes from one host but many keys, or one key and many
 hosts. The key is the thing worth limiting.
+
+## Phase 6 — dashboard, status page, postmortems
+
+**The rollup recomputes a 3-day window instead of updating incrementally.**
+Today's row is still accumulating, so it has to be rewritten anyway, and recomputing is
+idempotent: running the job twice, or after a crash mid-run, cannot double-count. Days
+older than the window are already final and are never touched again.
+
+**Real rollup data overwrites seeded history, deliberately.**
+The seed backfills 90 days of `uptime_daily` so a fresh install has a presentable status
+page. The rollup then overwrites any of those days that have real `check_results`. Real
+measurements should beat fiction, and it means a demo install gradually becomes a real one
+rather than keeping a pretty lie at the front of the chart.
+
+**`make_interval(days => $1::int)` — the cast is not optional.**
+Prisma sends JS numbers as `bigint`, and Postgres has no `make_interval(days => bigint)`
+overload, so the uncast version fails at runtime with `42883`. It is worth knowing that a
+`PREPARE` test in psql does *not* reproduce this: psql infers `int` on its own, so the
+statement looks fine there and fails only through Prisma.
+
+This was found because the failure was invisible: the worker's rollup is wrapped in a
+`catch` (housekeeping must never stop monitoring), so it logged and carried on while
+`uptime_daily` silently kept its seeded values. The `catch` is right; not having a way to
+run the job on demand was not. Hence `npm run rollup -w @pulsewatch/worker`, which runs it
+once in the foreground and reports what it did.
+
+**The rollup runs on the worker's existing loop, not a cron.**
+One process, one shutdown path, no second scheduler to reason about. It checks the elapsed
+time each cycle and runs at most hourly.
+
+**MTTR and MTTA cover 30 days, not all time.**
+A lifetime average is dominated by whatever happened at the beginning of the project and
+stops reflecting how the team is doing now.
+
+**The repeat rate is counted over fingerprinted incidents only.**
+Incidents created before fingerprinting existed have no fingerprint, and including them
+would drag the rate down for a reason that has nothing to do with repeats.
+
+**The public status page exposes nothing but names, status and daily percentages.**
+No monitor URLs, no error text, no incident titles, no severities. Verified by asserting
+the response body contains neither the monitor URL nor any error string. It reads
+`uptime_daily`, so a customer refreshing the page costs 90 small rows per monitor rather
+than a scan of every check ever recorded.
+
+**The postmortem fills in facts and leaves judgement blank.**
+Timeline, duration, severity, who acknowledged, which runbook worked, linked commits — all
+derived. Root cause, what went well, and action items stay `_(fill in)_`, because a
+template that guesses at root cause is worse than one that asks. If the incident's
+fingerprint has been seen before, the document says so and asks whether the cause or only
+the symptom is being treated.
