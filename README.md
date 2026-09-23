@@ -45,9 +45,9 @@ flowchart LR
     browser["Browser<br/>dashboard · incidents · status page"] -->|HTTPS| api
     apps["Other applications"] -->|"POST /api/ingest/errors<br/>X-Api-Key"| api
 
-    api["<b>API</b> · Express<br/>auth · incidents · memory · search<br/>serves the React build"]
-    worker["<b>Worker</b> · separate process<br/>scheduler → checker → state machine<br/>→ incidents → alerts · hourly rollup"]
-    db[("<b>PostgreSQL 16</b><br/>tsvector · pg_trgm")]
+    api["API · Express<br/>auth · incidents · memory · search<br/>serves the React build"]
+    worker["Worker · separate process<br/>scheduler → checker → state machine<br/>→ incidents → alerts · hourly rollup"]
+    db[("PostgreSQL 16<br/>tsvector · pg_trgm")]
 
     api <-->|SQL| db
     worker <-->|"FOR UPDATE SKIP LOCKED"| db
