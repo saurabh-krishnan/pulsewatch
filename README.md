@@ -1,12 +1,64 @@
 # PulseWatch
 
-Uptime monitoring and incident knowledge platform. It watches your services, opens an
-incident when something breaks, and shows what fixed the same problem last time — using
-error fingerprinting and ranked past fixes, not an AI model, so every match is explainable.
+[![CI](https://github.com/saurabh-krishnan/pulsewatch/actions/workflows/ci.yml/badge.svg)](https://github.com/saurabh-krishnan/pulsewatch/actions/workflows/ci.yml)
+![coverage of core algorithms](https://img.shields.io/badge/coverage%20(packages%2Fshared)-99%25-brightgreen)
+![tests](https://img.shields.io/badge/tests-unit%20%C2%B7%20API%20%C2%B7%20E2E-blue)
 
-> Status: **Phase 7 complete** — feature-complete, tested and security-hardened; deployment
-> (Phase 8) is next. See [the project guide](../PulseWatch_Project_Guide.md) for the full
-> 10-week build plan.
+**Uptime monitoring with incident memory.** PulseWatch checks your services, opens an
+incident when one goes down, and tells you what fixed the same problem last time — *"Seen 5
+times before. Restart DB connection pool fixed it 4 of 5 times."* It recognizes repeat
+failures by fingerprinting error messages, not with an AI model, so every match comes with
+the reason it matched.
+
+**Live demo:** _link added after the first deploy — see [DEPLOY.md](DEPLOY.md)_ ·
+sign in as `viewer@pulsewatch.local` / `pulsewatch123` (read-only) ·
+the public [status page](#screenshots) needs no login.
+
+## Screenshots
+
+| An incident, recognized from history | The dashboard |
+|---|---|
+| [![Incident page showing "Seen 5 times before" with suggested fixes and scored matches](docs/screenshots/incident-seen-before.png)](docs/screenshots/incident-seen-before.png) | [![Dashboard with MTTR, MTTA, repeat rate, service health and incidents per service](docs/screenshots/dashboard.png)](docs/screenshots/dashboard.png) |
+| **The public status page** | **Full-text search** |
+| [![Public status page with 90 days of daily uptime bars per service](docs/screenshots/status-page.png)](docs/screenshots/status-page.png) | [![Search results for "connection pool" with highlighted matches](docs/screenshots/search.png)](docs/screenshots/search.png) |
+
+Screenshots are generated from the production build by `scripts/screenshots.ts`.
+
+## What it does
+
+- **Monitors** HTTP endpoints on a schedule, with failure and recovery thresholds so one slow
+  response does not page anyone at 3 a.m.
+- **Opens an incident automatically** when a monitor goes down, with a timeline that records
+  every alert, acknowledgement, comment, runbook tried and resolution — and resolves it
+  automatically on recovery.
+- **Remembers**: fingerprints each error, finds past incidents with the same signature or
+  similar text, and ranks the runbooks that actually fixed them.
+- **Alerts** on Discord and email, and never lets a failed alert stop the monitoring.
+- **Ingests** errors from other applications over an API key, deduplicating repeats.
+- **Reports**: MTTR, MTTA, repeat rate, a public 90-day status page, and a postmortem
+  drafted from the timeline.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    browser["Browser<br/>dashboard · incidents · status page"] -->|HTTPS| api
+    apps["Other applications"] -->|"POST /api/ingest/errors<br/>X-Api-Key"| api
+
+    api["<b>API</b> · Express<br/>auth · incidents · memory · search<br/>serves the React build"]
+    worker["<b>Worker</b> · separate process<br/>scheduler → checker → state machine<br/>→ incidents → alerts · hourly rollup"]
+    db[("<b>PostgreSQL 16</b><br/>tsvector · pg_trgm")]
+
+    api <-->|SQL| db
+    worker <-->|"FOR UPDATE SKIP LOCKED"| db
+    worker -->|"HTTP checks<br/>SSRF-guarded"| targets["Monitored URLs<br/>incl. the demo target"]
+    worker -->|alerts| notify["Discord · email"]
+```
+
+The worker is a **separate process** from the API: checking hundreds of URLs is background
+work, and a slow batch must never delay an API request. They share only the database. The
+worker claims due monitors with `FOR UPDATE SKIP LOCKED`, so a second worker process never
+checks the same monitor twice — `npm run verify:skip-locked` proves it.
 
 ## How incident memory works
 
@@ -26,7 +78,7 @@ Both messages become:
 ```
 
 That string is hashed with SHA-256 together with the error type. Same hash, same problem.
-In the seed data, **26 historical incidents collapse into 12 fingerprints**.
+In the seed data, **27 historical incidents collapse into 12 fingerprints**.
 
 A new incident is then ranked against past resolved ones:
 
@@ -45,86 +97,63 @@ database.
 
 Finally, the runbooks that fixed those incidents are ranked by a Laplace-smoothed success
 rate, `(worked + 1) / (tried + 2)`, so a runbook that worked 1 of 1 does not outrank one
-that worked 9 of 10. The result reads:
+that worked 9 of 10. Every match is explainable, because nothing here is a model.
 
-> **Seen 5 times before with the exact same error signature.**
-> Suggested fixes: Restart DB connection pool — **71%**, fixed 4 of 5.
+## Tech stack
 
-Every match is explainable, because nothing here is a model.
+| Layer | Choice |
+|---|---|
+| Frontend | React 19, Vite, TypeScript, Tailwind CSS, React Router, TanStack Query, Recharts |
+| Backend | Node.js, Express, TypeScript, Zod |
+| Database | PostgreSQL 16 with full-text search (`tsvector`) and `pg_trgm`; Prisma |
+| Auth | bcrypt, JWT, role-based access (admin · engineer · viewer), hashed API keys |
+| Testing | Vitest, Supertest against a real Postgres, Playwright |
+| Delivery | esbuild bundles, multi-stage Docker images, GitHub Actions, Render |
 
-## Demo accounts
+## Run it locally
 
-After `npm run db:seed`, all three use the password `pulsewatch123`:
+Needs Node 20+ and PostgreSQL 16 (Docker, or a local install — see [SETUP.md](SETUP.md)).
+
+```bash
+cp .env.example .env
+npm install
+npm run db:up             # Postgres on :5432 via Docker; or `npm run pg:start` without Docker
+npm run db:migrate
+npm run db:seed           # demo accounts, services, runbooks and 90 days of history
+npm run dev               # api :4000 · web :5173 · worker · demo target :4100
+```
+
+Open <http://localhost:5173>. Locally every seeded account uses the password `pulsewatch123`:
 
 | Email | Role | Can |
 |---|---|---|
-| `admin@pulsewatch.local` | admin | everything, including creating services and monitors |
-| `engineer@pulsewatch.local` | engineer | acknowledge and resolve incidents (Phase 3) |
+| `admin@pulsewatch.local` | admin | everything, including services, monitors and API keys |
+| `engineer@pulsewatch.local` | engineer | open, acknowledge and resolve incidents; write runbooks |
 | `viewer@pulsewatch.local` | viewer | read only |
 
-## Quick start
-
-```bash
-cp .env.example .env      # already done once
-npm install
-npm run db:up             # Postgres 16 + pg_trgm on :5432 (test DB on :5433)
-npm run db:migrate        # create the schema
-npm run dev               # api :4000 · web :5173 · worker · demo-target :4100
-```
-
-> On a machine where Docker cannot run, use `npm run pg:start` in place of `npm run db:up`.
-> See [SETUP.md](SETUP.md).
-
-Health check: <http://localhost:4000/api/health> · UI: <http://localhost:5173>
-
-## Workspace layout
-
-```
-pulsewatch/
-├── apps/
-│   ├── api/           Express + TypeScript API (routes, middleware, services, lib)
-│   ├── worker/        check scheduler + rollup job (separate process)
-│   ├── web/           React + Vite + Tailwind frontend
-│   └── demo-target/   fault-injection service you can break on purpose
-├── packages/shared/   fingerprint · stateMachine · scoring (used by api + worker)
-├── prisma/            schema, migrations, seed
-├── docker/initdb/     Postgres bootstrap SQL (pg_trgm)
-└── .github/workflows/ lint → typecheck → test → build
-```
-
-## Scripts
-
-| Command | What it does |
-|---|---|
-| `npm run dev` | All four apps in parallel |
-| `npm run dev:api` / `dev:web` / `dev:worker` / `dev:demo` | One app |
-| `npm run db:up` / `db:down` | Start / stop Postgres via Docker Compose |
-| `npm run db:migrate` | Apply Prisma migrations |
-| `npm run db:seed` | Seed demo data |
-| `npm test` | Vitest unit tests |
-| `npm run typecheck` | Project-wide TypeScript build |
-| `npm run lint` / `format` | ESLint / Prettier |
-
-## Demo target
+To watch the whole loop, break the demo target and wait for the incident:
 
 ```bash
 curl -X POST http://localhost:4100/mode -H "content-type: application/json" -d "{\"mode\":\"failing\"}"
 ```
 
-Modes: `healthy`, `slow` (8s response), `failing` (HTTP 503). Flip it to produce a
-repeatable outage for demos and worker tests.
+Modes are `healthy`, `slow` (8s, so it times out) and `failing` (HTTP 503).
 
-With the worker running and a 30s monitor interval, `failing` takes the monitor DOWN after
-three consecutive failures (~90s) and `healthy` brings it back UP after two successes (~60s).
+### Configuration
 
-Going DOWN opens an incident automatically, with an `opened` timeline event and a severity
-derived from the error type. Recovering resolves it automatically and adds a `resolved`
-event. In between, an engineer can acknowledge, comment, change severity and resolve with a
-note — every one of those writes to the timeline.
+Everything lives in one root `.env`; `.env.example` documents each setting. The ones that
+matter most:
 
-Note that all three seeded monitors point at the same demo target, so breaking it opens one
-incident per monitor. That is the partial unique index doing its job: one active incident
-per monitor, never one per service.
+| Variable | Purpose |
+|---|---|
+| `DATABASE_URL` | Postgres connection string |
+| `JWT_SECRET` | Token signing key. Production refuses a placeholder or anything under 32 characters |
+| `ALLOW_PRIVATE_MONITOR_TARGETS` | `true` locally so monitors can reach the demo target. Production refuses to start with it on |
+| `MONITOR_HOST_ALLOWLIST` | Specific private hosts monitors may reach anyway, e.g. an internal demo target |
+| `DISCORD_WEBHOOK_URL`, `SMTP_URL`, `ALERT_EMAIL_TO` | Optional alert channels |
+| `WEB_DIST_DIR` | When set, the API serves the built web app (production) |
+| `TRUST_PROXY` | Proxy hops in front of the API, so rate limits see real client IPs |
+| `DEMO_ADMIN_PASSWORD` | Production only: the admin and engineer demo accounts' password |
 
 ## Testing
 
@@ -138,12 +167,11 @@ per monitor, never one per service.
 (thresholds: 90% lines/functions/statements, 85% branches on `packages/shared`).
 
 The API and E2E suites use the `pulsewatch_test` database and **truncate every table**, so
-they refuse to run against any database whose name does not end in `_test`. Override the
-location with the `TEST_DATABASE_URL` environment variable.
+they refuse to run against any database whose name does not end in `_test`. E2E starts its
+own stack on ports 4010/4110/5183, so it does not disturb a dev stack.
 
-E2E starts its own API, worker, demo target and web on ports 4010/4110/5183, so it does not
-interfere with a dev stack on the usual ports. Locally it drives Microsoft Edge; in CI it uses
-Chromium (`CI=1`, after `npx playwright install chromium`).
+CI runs all three on every push, then builds the production Docker images and smoke-tests
+them, and deploys only when everything has passed.
 
 ## Security
 
@@ -152,91 +180,48 @@ Chromium (`CI=1`, after `npx playwright install chromium`).
   IPv4 and IPv6, including encodings such as `http://2130706433/` and
   `http://[::ffff:169.254.169.254]/`. Enforced when a monitor is saved, again before each
   check, and at connect time through a guarded DNS lookup, which also defeats DNS rebinding.
-  Redirects are never followed. Use `MONITOR_HOST_ALLOWLIST` to permit a specific internal host.
+  Redirects are never followed.
 - **Authentication:** bcrypt password hashes, one-hour JWTs, identical responses *and*
   identical bcrypt work for unknown emails and wrong passwords, rate-limited login and sign-up.
 - **API keys** stored as SHA-256 hashes, shown once, revocable; ingest rate-limited per key.
 - **Transport:** Helmet security headers; CORS restricted to the configured frontend.
-- **Input:** Zod validation on every body; parameterized SQL only (raw queries use
-  positional parameters, audited); malformed JSON and oversized bodies return 4xx, never 500.
-- **Production guards:** the API and worker refuse to start with a placeholder `JWT_SECRET`
-  or with `ALLOW_PRIVATE_MONITOR_TARGETS=true`.
+- **Input:** Zod validation on every body; parameterized SQL only; malformed JSON and
+  oversized bodies return 4xx, never 500.
+- **Production guards:** refuses to start with a placeholder `JWT_SECRET` or with private
+  monitor targets enabled; the public demo's admin password is never the published one.
 
-See [DECISIONS.md](DECISIONS.md) for the reasoning behind each of these.
+## Deploying
 
-## Status page
-
-`/status` is public — no login, and it exposes only service names, current status and
-daily uptime percentages. No monitor URLs, no error text, no incident detail.
-
-It reads the `uptime_daily` rollup rather than raw checks, so rendering 90 days costs 90
-small rows per monitor instead of scanning roughly 130,000 raw results. The worker
-recomputes the last three days hourly and deletes raw results past
-`RESULTS_RETENTION_DAYS`. To run it on demand:
+The free path is Render for the app and Supabase for Postgres, set up from the included
+`render.yaml` Blueprint. [DEPLOY.md](DEPLOY.md) walks through it, including the trade-offs
+of the free tier. The same images run anywhere with Docker:
 
 ```bash
-npm run rollup -w @pulsewatch/worker
+JWT_SECRET=... DEMO_ADMIN_PASSWORD=... docker compose -f docker-compose.prod.yml up -d --build
 ```
 
-## Postmortems
+After a deploy, `BASE_URL=https://your-app scripts/smoke-test.sh` checks it the way a visitor
+would.
 
-`GET /api/incidents/:id/postmortem` returns Markdown built from the timeline — duration,
-severity, who acknowledged, which runbook worked, linked commits. Root cause and action
-items are left blank on purpose. If the error signature has been seen before, the document
-says how many times and asks whether the cause or only the symptom is being treated.
+## More detail
 
-## Alerting
+- **Status page** — `/status` is public and exposes only names, status and daily uptime. It
+  reads the `uptime_daily` rollup, so 90 days costs 90 small rows per monitor instead of
+  scanning ~130,000 raw checks. `npm run rollup -w @pulsewatch/worker` runs the rollup on demand.
+- **Postmortems** — `GET /api/incidents/:id/postmortem` drafts Markdown from the timeline and
+  leaves root cause and action items blank on purpose.
+- **Alerting without Discord** — set `DISCORD_WEBHOOK_URL=http://localhost:4100/webhook` and
+  read what was sent from `GET http://localhost:4100/webhook`.
+- **Ingest** — create an API key on a service page, then `POST /api/ingest/errors` with
+  `X-Api-Key`. A repeat of the same underlying error attaches to the open incident.
+- **[DECISIONS.md](DECISIONS.md)** — why things are the way they are, phase by phase,
+  including the bugs found along the way.
 
-Set `DISCORD_WEBHOOK_URL` and/or `SMTP_URL` in `.env`. With neither set, PulseWatch stays
-quiet. Alerts fire when an incident opens and again when it recovers, and either outcome is
-recorded on the timeline as `alert_sent`.
+## Future work
 
-To test alerting without a real Discord server, point it at the demo target's sink:
-
-```
-DISCORD_WEBHOOK_URL=http://localhost:4100/webhook
-```
-
-then read what was delivered:
-
-```bash
-curl http://localhost:4100/webhook
-```
-
-A failed alert never stops the worker — the incident is still opened, and the timeline says
-the delivery failed.
-
-## Reporting errors from another app
-
-Create an API key on a service page (admin only; shown once, stored hashed), then:
-
-```bash
-curl -X POST http://localhost:4000/api/ingest/errors -H "X-Api-Key: pw_live_..." -H "content-type: application/json" -d "{\"errorType\":\"DB_TIMEOUT\",\"message\":\"Timeout after 5000ms connecting to 10.0.3.17:5432\",\"severity\":\"SEV2\"}"
-```
-
-The first report opens an incident. A second report of the *same underlying problem* —
-even with different numbers, IPs or IDs — is deduplicated onto it by fingerprint and adds a
-"seen again" timeline entry instead of creating a duplicate.
-
-## Running two workers
-
-The scheduler claims monitors with `FOR UPDATE SKIP LOCKED`, so a second worker process
-never re-checks a monitor the first one already claimed:
-
-```bash
-npm run verify:skip-locked
-```
-
-Client A holds its locks in an open transaction while client B runs the identical claim
-query; B returns a disjoint set immediately instead of blocking.
-
-## Environment
-
-All configuration lives in one root `.env` (see `.env.example`). `ALLOW_PRIVATE_MONITOR_TARGETS`
-is `true` locally so monitors can reach the demo target, and **must be `false` in production** —
-that flag is the SSRF guard on user-supplied monitor URLs.
-
-## Still to come
-
-README checklist from the guide (live link, screenshots, architecture diagram, "how incident
-memory works", coverage badge, design decisions) gets filled in at Phase 8.
+- On-call schedules with escalation when an alert is not acknowledged in time
+- Multi-region checks that mark a service down only when two regions agree
+- TLS certificate expiry checks
+- Maintenance windows that silence alerts during planned work
+- Live dashboard updates over Server-Sent Events
+- Teams and organizations (multi-tenancy)

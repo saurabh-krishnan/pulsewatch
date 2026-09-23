@@ -1,0 +1,69 @@
+# The whole stack from the production images (guide section 12, option B):
+#
+#   docker compose -f docker-compose.prod.yml up -d --build
+#
+# CI runs exactly this and smoke-tests it, which is how the Dockerfile is
+# verified even on a machine that cannot run Docker.
+#
+# Every container runs the production configuration. The monitors point at the
+# demo target by its service name, which Docker resolves to a private address,
+# so the SSRF policy would refuse it -- MONITOR_HOST_ALLOWLIST lets through
+# exactly that one host, rather than turning the protection off.
+
+x-app-env: &app-env
+  NODE_ENV: production
+  DATABASE_URL: postgresql://pulsewatch:${POSTGRES_PASSWORD:-pulsewatch}@db:5432/pulsewatch
+  JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET to a random string of 32+ characters}
+  ALLOW_PRIVATE_MONITOR_TARGETS: 'false'
+  MONITOR_HOST_ALLOWLIST: demo
+  DEMO_TARGET_URL: http://demo:4100
+
+services:
+  db:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: pulsewatch
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-pulsewatch}
+      POSTGRES_DB: pulsewatch
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U pulsewatch -d pulsewatch']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  demo:
+    build: { context: ., target: demo }
+    environment:
+      DEMO_TARGET_PORT: '4100'
+
+  api:
+    build: { context: ., target: api }
+    depends_on:
+      db: { condition: service_healthy }
+      demo: { condition: service_started }
+    environment:
+      <<: *app-env
+      API_PORT: '4000'
+      CORS_ORIGIN: ${PUBLIC_URL:-http://localhost:4000}
+      SEED_ON_START: ${SEED_ON_START:-true}
+      DEMO_ADMIN_PASSWORD: ${DEMO_ADMIN_PASSWORD:?set DEMO_ADMIN_PASSWORD for the admin and engineer demo accounts}
+      # Behind the nginx `web` container or a platform load balancer.
+      TRUST_PROXY: ${TRUST_PROXY:-0}
+    ports:
+      - '4000:4000'
+
+  worker:
+    build: { context: ., target: worker }
+    # The API applies migrations on start; the worker waits until it is healthy.
+    depends_on:
+      api: { condition: service_healthy }
+    environment:
+      <<: *app-env
+      WORKER_POLL_SECONDS: '5'
+      DISCORD_WEBHOOK_URL: ${DISCORD_WEBHOOK_URL:-}
+
+volumes:
+  pgdata:

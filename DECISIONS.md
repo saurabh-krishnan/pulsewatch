@@ -170,7 +170,8 @@ once bare numbers are substituted a UUID is an unrecoverable mess of `<num>` fra
 Three tests assert exactly that ordering rather than just the final output, so a future
 tidy-up of the rules cannot silently break grouping.
 
-Proof it works: the seed's 26 historical incidents collapse into 12 fingerprints. The five
+Proof it works: the seed's 26 historical incidents collapse into 12 fingerprints (27 from
+Phase 8, when a third 503 was added for the live demo — still 12 fingerprints). The five
 pool-exhaustion incidents differ in connection counts and wait times, and the four database
 timeouts differ in timestamp, IP, port and request UUID — each family becomes one hash.
 
@@ -396,3 +397,88 @@ target and web on ports shifted by 10, against the test database, so it never co
 a running dev stack. The outage test is genuinely end to end — the incident appears because
 the real worker checked the real demo target and saw it fail. Locally it drives the Edge that
 ships with Windows, avoiding a browser download; CI installs Chromium.
+
+## Phase 8 — deployment
+
+**Production runs esbuild bundles, which settles the Phase 0 trade-off.** `@pulsewatch/shared`
+exports TypeScript source, which Node cannot import. Rather than add a compile step to the
+package and teach every tool about it, each Node process is bundled into one CommonJS file
+that contains the shared code. Development is untouched. CommonJS rather than ESM because
+the server code uses neither `import.meta` nor top-level `await`, and it avoids the
+`require()` shim an ESM bundle of CommonJS dependencies needs.
+
+**The runtime image holds only Prisma in `node_modules`.** Every other dependency is inside
+the bundles. Prisma stays external because its generated client and native query engine must
+live in `node_modules`, and its CLI applies migrations at start-up. The build and runtime
+stages use the same Debian base so the engine the build generates matches the runtime.
+
+**One Dockerfile, several targets.** `api`, `worker`, `demo`, an nginx `web`, and an
+all-in-one `all` share one build stage, so the web app and bundles are built once. `all` is
+last so a plain `docker build .` produces it, which is what a platform building the default
+target gets.
+
+**Docker is verified in CI, because it cannot run on this machine.** The `docker` job builds
+every target, starts `docker-compose.prod.yml`, and runs `scripts/smoke-test.sh` against it.
+The same script checks a real deploy afterwards.
+
+**The API serves the web app in production.** One origin, one deployable, no CORS between
+them. Client-side routes fall back to `index.html`, but anything under `/api/` does not, so a
+typo in an API path still gets a JSON 404 instead of a web page. Fingerprinted assets are
+cached for a year; `index.html` is never cached, so a deploy reaches returning visitors.
+
+**`TRUST_PROXY` is a hop count, not `true`.** Behind a load balancer every request arrives
+from the proxy's address, so without trusting it the rate limiters would treat every visitor
+as one client. Trusting *everything* would be worse: a client could send its own
+`X-Forwarded-For` and pick whatever address it liked, walking straight past the login limit.
+
+**On the free tier, the three processes share one container — as processes, not threads.**
+Render's free plan has web services but no free background workers. The launcher
+(`deploy/start.mjs`) runs the API, worker and demo target as separate OS processes, so the
+separate-worker point still holds: a slow batch of checks cannot delay an API request. It
+restarts a crashed process with backoff, and resets the backoff for anything that ran for a
+minute, so a process that crashes once after days is restarted promptly. On a paid plan the
+same image splits into separate services with `PROCESSES=api` and `PROCESSES=worker`.
+
+**Only the API process migrates.** If the API and worker containers start together, only one
+of them should be walking the schema forward. The worker waits for the API's health check.
+
+**The public demo has one published password, and it is the read-only one.** Locally every
+seeded account shares `pulsewatch123`. In production the seed refuses to run unless
+`DEMO_ADMIN_PASSWORD` is set and differs from the viewer's, so publishing the demo login
+never publishes the admin account. The seed re-applies the hash on each run, so rotating the
+secret and redeploying changes it.
+
+**The demo target is private, and admins flip it through the API.** Exposing it publicly
+would let any visitor fake an outage, and a second free service would cold-start and cause
+false incidents. So it listens only inside the container, and `POST /api/demo/mode`
+(admin-only) relays the mode. The URL comes from configuration, never from the request, so
+this is not a way to make the server fetch arbitrary URLs.
+
+**The seed was changed so the live demo hits the headline moment.** Checking the demo path
+end to end showed a gap: breaking the demo target records `HTTP 503 Service Unavailable`, but
+the seeded 503s read `...from https://api.example.com/...`, which normalizes differently — so
+the live demo would have shown "similar" matches but never "seen before". The 503 family now
+uses the exact message the checker records, and the payments-api monitor checks every 30s
+with a threshold of two. Rehearsed on the production build: the incident opened 56 seconds
+after breaking the target, matched three past incidents by fingerprint, and suggested
+"Scale out replicas — 80%, fixed 3 of 3".
+
+**Pages load on demand.** Route-level code splitting cut the first download from 287 KB to
+116 KB gzipped. It matters most for the public status page, which is what a stranger opens
+first and which has no use for the charting library or the Markdown renderer.
+
+**Deploys come from CI, not from pushes.** `render.yaml` sets `autoDeploy: false`; the
+`deploy` job calls Render's deploy hook only after the build, API, end-to-end and Docker jobs
+pass on `main`. Without the secret it skips cleanly, so the pipeline is green before there is
+anything to deploy to.
+
+**Supabase over Neon for the free database.** Neon's free tier suspends an idle database to
+save compute, but the worker queries every few seconds, so it would never be idle and would
+exhaust the monthly allowance. Supabase's free database stays up. Its session pooler is used
+rather than the direct host, which is IPv6-only on the free plan, and session rather than
+transaction mode, because the worker depends on real transactions.
+
+**Keeping the free instance awake is opt-in.** A sleeping free instance means a sleeping
+worker, so the status page would show gaps. `keepalive.yml` pings the health check every 10
+minutes once a repository variable is set. It is a workaround with a known limitation —
+scheduled workflows can be delayed — and the honest fix is a paid instance.

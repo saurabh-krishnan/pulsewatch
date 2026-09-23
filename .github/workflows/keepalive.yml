@@ -1,0 +1,24 @@
+name: keep-alive
+
+# Free web services on Render go to sleep after about 15 minutes without a
+# request. PulseWatch's worker lives in the same instance, so asleep means
+# not monitoring: the status page would show gaps. This pings the health check
+# often enough to prevent that.
+#
+# Off until you opt in: set the repository variable PULSEWATCH_URL
+# (Settings -> Secrets and variables -> Actions -> Variables) to your live URL.
+# One always-on free instance fits inside Render's monthly free hours. GitHub
+# may delay scheduled runs under load, so the odd short sleep is still possible.
+
+on:
+  schedule:
+    - cron: '*/10 * * * *'
+  workflow_dispatch:
+
+jobs:
+  ping:
+    if: vars.PULSEWATCH_URL != ''
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping the health check
+        run: curl -sS --max-time 90 -o /dev/null -w '%{http_code}\n' "${{ vars.PULSEWATCH_URL }}/api/health" || true

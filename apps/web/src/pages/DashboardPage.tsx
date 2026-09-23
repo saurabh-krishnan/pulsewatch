@@ -2,6 +2,7 @@ import { useQuery } from '@tanstack/react-query';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { Link } from 'react-router-dom';
 import { getHealth, getStatsOverview, listIncidents } from '../api/client';
+import { DemoControls } from '../components/DemoControls';
 import { Card, IncidentStatusBadge, SeverityBadge, StatusBadge } from '../components/ui';
 
 function humanDuration(seconds: number | null): string {
@@ -68,6 +69,8 @@ export function DashboardPage() {
           </p>
         )}
       </div>
+
+      <DemoControls />
 
       <div className="mt-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
         <Metric

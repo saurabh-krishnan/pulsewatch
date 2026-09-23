@@ -1,0 +1,9 @@
+{
+  "name": "pulsewatch-runtime",
+  "private": true,
+  "description": "Run-time dependencies of the production image. Everything else is bundled.",
+  "dependencies": {
+    "@prisma/client": "6.19.3",
+    "prisma": "6.19.3"
+  }
+}

@@ -1,0 +1,49 @@
+# Render Blueprint (guide section 12, option A). See DEPLOY.md for the steps.
+#
+# One free web service built from the Dockerfile's default target, which runs
+# the API, the worker and the demo target as three processes in one container.
+# They are still separate processes -- a slow batch of checks never delays an
+# API request -- but they share the single free instance. On a paid plan, split
+# them into a web service (target `api`) and a background worker (target
+# `worker`) instead.
+#
+# The demo target listens only inside the container, so the public cannot
+# break it; an admin flips it from the dashboard's demo controls.
+services:
+  - type: web
+    name: pulsewatch
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    # Deploys come from CI, and only after the tests pass (see ci.yml `deploy`).
+    autoDeploy: false
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # Postgres from Supabase or Neon -- pasted in when the Blueprint is created.
+      - key: DATABASE_URL
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      # Admin and engineer demo accounts. Keep it private; the viewer's
+      # password is the published one.
+      - key: DEMO_ADMIN_PASSWORD
+        sync: false
+      - key: SEED_ON_START
+        value: 'true'
+      # Render's load balancer is one hop in front of the app.
+      - key: TRUST_PROXY
+        value: '1'
+      - key: ALLOW_PRIVATE_MONITOR_TARGETS
+        value: 'false'
+      # The co-located demo target is the one private host monitors may reach.
+      - key: MONITOR_HOST_ALLOWLIST
+        value: localhost
+      - key: DEMO_TARGET_URL
+        value: http://localhost:4100
+      - key: DEMO_TARGET_PORT
+        value: '4100'
+      - key: DISCORD_WEBHOOK_URL
+        sync: false

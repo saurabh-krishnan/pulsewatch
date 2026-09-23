@@ -1,0 +1,21 @@
+# Never let a local secret into an image layer.
+.env
+.env.*
+!.env.example
+
+# Rebuilt inside the image.
+node_modules
+**/node_modules
+dist
+**/dist
+
+# Not needed to build or run.
+.git
+.github
+.vscode
+.idea
+coverage
+test-results
+playwright-report
+docker/pgdata
+*.log

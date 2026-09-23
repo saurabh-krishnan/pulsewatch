@@ -12,4 +12,19 @@ export default tseslint.config(
       'no-console': 'off',
     },
   },
+  {
+    // Plain-JavaScript Node scripts (the build script, the production launcher).
+    // TypeScript files get these from @types/node; these need telling.
+    files: ['**/*.mjs'],
+    languageOptions: {
+      globals: {
+        process: 'readonly',
+        console: 'readonly',
+        setTimeout: 'readonly',
+        clearTimeout: 'readonly',
+        Buffer: 'readonly',
+        URL: 'readonly',
+      },
+    },
+  },
 );

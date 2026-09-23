@@ -19,21 +19,50 @@ import bcrypt from 'bcryptjs';
 
 const prisma = new PrismaClient();
 
-const DEMO_PASSWORD = 'pulsewatch123';
+const IS_PRODUCTION = process.env.NODE_ENV === 'production';
+const LOCAL_PASSWORD = 'pulsewatch123';
 const DEMO_TARGET = process.env.DEMO_TARGET_URL ?? 'http://localhost:4100';
+
+/**
+ * Locally every account shares one password. On a public deployment that
+ * would hand strangers the admin account, so there only the read-only viewer
+ * has a published password; admin and engineer come from secrets, and the seed
+ * refuses to run without them.
+ */
+function passwords() {
+  const viewer = process.env.DEMO_VIEWER_PASSWORD || LOCAL_PASSWORD;
+  const privileged = process.env.DEMO_ADMIN_PASSWORD || (IS_PRODUCTION ? '' : LOCAL_PASSWORD);
+  if (!privileged) {
+    throw new Error(
+      'DEMO_ADMIN_PASSWORD must be set to seed in production: the admin and engineer ' +
+        'accounts must not share the published viewer password.',
+    );
+  }
+  if (IS_PRODUCTION && privileged === viewer) {
+    throw new Error('DEMO_ADMIN_PASSWORD must differ from the public viewer password.');
+  }
+  return { viewer, privileged };
+}
 
 const USERS = [
   { name: 'Ada Admin', email: 'admin@pulsewatch.local', role: 'admin' },
   { name: 'Eli Engineer', email: 'engineer@pulsewatch.local', role: 'engineer' },
   { name: 'Vic Viewer', email: 'viewer@pulsewatch.local', role: 'viewer' },
-];
+] as const;
 
 const SERVICES = [
   {
     name: 'payments-api',
     description: 'Handles card authorisation and settlement.',
     tags: ['critical', 'payments'],
-    monitor: { url: `${DEMO_TARGET}/health`, intervalSeconds: 60, timeoutMs: 5000 },
+    // Tuned for the live demo: a 30s interval and two strikes means breaking the
+    // demo target opens an incident in about a minute, not three.
+    monitor: {
+      url: `${DEMO_TARGET}/health`,
+      intervalSeconds: 30,
+      timeoutMs: 5000,
+      failureThreshold: 2,
+    },
   },
   {
     name: 'auth-service',
@@ -390,11 +419,29 @@ const HISTORY: {
     runbooks: [],
     note: 'Certificate renewed. Expiry alerting added to the backlog.',
   },
+  // --- repeat family 6: payments-api answering 503 (3 occurrences) ---
+  // The message is exactly what the checker records when the demo target is
+  // switched to `failing`, so breaking it on purpose -- the live demo -- lands
+  // on this fingerprint and shows "seen before" with a proven fix.
   {
     service: 'payments-api',
     errorType: 'HTTP_5XX',
-    message: 'HTTP 503 Service Unavailable from https://api.example.com/v1/pay?id=8812',
-    title: 'payments-api returning 503 at the edge',
+    message: 'HTTP 503 Service Unavailable',
+    title: 'payments-api health check failing',
+    severity: 'SEV2',
+    daysAgo: 48,
+    durationMins: 34,
+    runbooks: [
+      { key: 'restart-db-pool', worked: false },
+      { key: 'scale-replicas', worked: true },
+    ],
+    note: 'Pool restart did nothing; the instances were saturated. Scaled out.',
+  },
+  {
+    service: 'payments-api',
+    errorType: 'HTTP_5XX',
+    message: 'HTTP 503 Service Unavailable',
+    title: 'payments-api health check failing',
     severity: 'SEV2',
     daysAgo: 33,
     durationMins: 18,
@@ -404,8 +451,8 @@ const HISTORY: {
   {
     service: 'payments-api',
     errorType: 'HTTP_5XX',
-    message: 'HTTP 503 Service Unavailable from https://api.example.com/v1/pay?id=31905',
-    title: 'payments-api returning 503 at the edge',
+    message: 'HTTP 503 Service Unavailable',
+    title: 'payments-api health check failing',
     severity: 'SEV3',
     daysAgo: 15,
     durationMins: 11,
@@ -532,20 +579,29 @@ async function seedUptimeHistory(
 }
 
 async function main() {
-  const passwordHash = await bcrypt.hash(DEMO_PASSWORD, 10);
+  const pw = passwords();
+  const viewerHash = await bcrypt.hash(pw.viewer, 10);
+  const privilegedHash = await bcrypt.hash(pw.privileged, 10);
 
   const users = [];
   for (const u of USERS) {
+    const passwordHash = u.role === 'viewer' ? viewerHash : privilegedHash;
     users.push(
       await prisma.user.upsert({
         where: { email: u.email },
-        update: { name: u.name, role: u.role },
+        // Re-applying the hash means rotating DEMO_ADMIN_PASSWORD and
+        // redeploying is enough to change the password.
+        update: { name: u.name, role: u.role, passwordHash },
         create: { ...u, passwordHash },
       }),
     );
   }
   const [admin, engineer] = users;
-  console.log(`[seed] ${users.length} users (password for all: ${DEMO_PASSWORD})`);
+  console.log(
+    IS_PRODUCTION
+      ? `[seed] ${users.length} users (viewer password is the published one; admin/engineer from DEMO_ADMIN_PASSWORD)`
+      : `[seed] ${users.length} users (password for all: ${LOCAL_PASSWORD})`,
+  );
 
   const serviceIds = new Map<string, number>();
   const monitorsForHistory: { id: number; serviceName: string; intervalSeconds: number }[] = [];

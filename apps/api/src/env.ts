@@ -12,7 +12,12 @@ const PLACEHOLDER_SECRETS = new Set(['change-me', 'changeme', 'secret', 'jwt-sec
 
 const schema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
-  API_PORT: z.coerce.number().int().positive().default(4000),
+  // Hosting platforms (Render, Railway, Heroku) announce the port in PORT.
+  API_PORT: z.coerce
+    .number()
+    .int()
+    .positive()
+    .default(Number(process.env.PORT) || 4000),
   DATABASE_URL: z.string().min(1, 'DATABASE_URL is required'),
   JWT_SECRET: z.string().min(8, 'JWT_SECRET must be at least 8 characters'),
   JWT_EXPIRES_IN: z.string().default('1h'),
@@ -30,6 +35,13 @@ const schema = z.object({
         .map((s) => s.trim())
         .filter(Boolean),
     ),
+  // ---- deployment ----
+  /** Directory holding the built React app; when set, the API serves it. */
+  WEB_DIST_DIR: z.string().optional().or(z.literal('')).transform((v) => v || undefined),
+  /** Proxy hops in front of the API (a platform load balancer is usually 1). */
+  TRUST_PROXY: z.coerce.number().int().min(0).max(5).default(0),
+  /** Enables the admin-only demo controls, relaying to this URL. */
+  DEMO_TARGET_URL: z.string().url().optional().or(z.literal('')).transform((v) => v || undefined),
 });
 
 const parsed = schema.safeParse(process.env);
