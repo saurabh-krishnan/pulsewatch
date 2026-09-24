@@ -61,11 +61,20 @@ be idle and would use up the monthly compute allowance.
 
 ## 3. Check it
 
-From the repository, in Git Bash or any shell with `bash` and `node`:
+From the repository root. In **Git Bash** (or any Linux/macOS shell):
 
 ```bash
 BASE_URL=https://pulsewatch-xxxx.onrender.com ADMIN_PASSWORD='your-admin-password' bash scripts/smoke-test.sh
 ```
+
+In **PowerShell**, the `NAME=value command` form above does not work, and a bare `bash` may
+start WSL instead of Git Bash. Set the variables first and call Git Bash by its full path:
+
+```powershell
+$env:BASE_URL = 'https://pulsewatch-xxxx.onrender.com'; $env:ADMIN_PASSWORD = 'your-admin-password'; & "C:\Program Files\Git\bin\bash.exe" scripts/smoke-test.sh
+```
+
+`ADMIN_PASSWORD` is optional; without it, the admin-only check is skipped.
 
 It checks the health endpoint, that the app and status page load, that security headers
 are present, that the published viewer login works and cannot write, that the worker is
