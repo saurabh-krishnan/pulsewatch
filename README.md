@@ -10,9 +10,10 @@ times before. Restart DB connection pool fixed it 4 of 5 times."* It recognizes 
 failures by fingerprinting error messages, not with an AI model, so every match comes with
 the reason it matched.
 
-**Live demo:** _link added after the first deploy — see [DEPLOY.md](DEPLOY.md)_ ·
+**Live demo: [pulsewatch-bvnl.onrender.com](https://pulsewatch-bvnl.onrender.com)** ·
 sign in as `viewer@pulsewatch.local` / `pulsewatch123` (read-only) ·
-the public [status page](#screenshots) needs no login.
+the [status page](https://pulsewatch-bvnl.onrender.com/status) needs no login.
+Runs on a free instance, so the first visit after a quiet spell can take up to a minute.
 
 ## Screenshots
 
